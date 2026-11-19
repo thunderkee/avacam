@@ -7,22 +7,24 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
 // The current (2.2) designs, as the game uses them: angel-22, rex-22, ember-22, and trueleo (one version).
 export const BDA_CAST = [
-  { id: 'bda-angel', file: 'models/bda-angel.glb', name: 'Seraph', bg: '#CFDDF7' },
-  { id: 'bda-trueleo', file: 'models/bda-trueleo.glb', name: 'True Leo King', bg: '#F1DDB0' },
+  { id: 'bda-angel', file: 'models/bda-angel.glb', name: 'Seraph', bg: '#CFDDF7', shot: 'body' },
+  { id: 'bda-trueleo', file: 'models/bda-trueleo.glb', name: 'True Leo King', bg: '#F1DDB0', shot: 'body' },
   { id: 'bda-rex', file: 'models/bda-rex.glb', name: 'Rex Saur', bg: '#CFE6EE' },
   { id: 'bda-ember', file: 'models/bda-ember.glb', name: 'Blossom', bg: '#FFD9C8' },
 ].map((e) => {
   let rig = null, ready = null;
   return {
     ...e, kind: 'toy',
-    build: () => (rig ||= emptyRig(), ready ||= load(e.file, rig), rig),
-    ready: () => (rig ||= emptyRig(), ready ||= load(e.file, rig)),
+    build: () => (rig ||= emptyRig(), ready ||= load(e, rig), rig),
+    ready: () => (rig ||= emptyRig(), ready ||= load(e, rig)),
   };
 });
 
 const loader = new GLTFLoader();
 const HEAD_SIZE = 1.9;  // match the other 3D characters' heads (about 2 units tall)
 const HEAD_Y = 0.15;    // where their head centres sit
+// Body shot (shot: 'body'): the whole fighter in frame, head to feet, with a little room above.
+const BODY_H = 3.4, BODY_TOP = 1.6, BODY_W = 3.0; // (the frame is about 2.7 wide: wide wings may crop a little)
 
 function emptyRig() {
   const root = new THREE.Group(), body = new THREE.Group();
@@ -35,7 +37,7 @@ function emptyRig() {
   return { root, head, body, eyes: [], brows: [], ears: [], mouth: null, extra: {}, faceBack: true, headStill: true };
 }
 
-async function load(file, rig) {
+async function load({ file, shot }, rig) {
   const gltf = await loader.loadAsync(file);
   const model = gltf.scene;
   const orient = new THREE.Group();
@@ -54,13 +56,22 @@ async function load(file, rig) {
   });
 
   // Size and place: the head as big as the other characters' heads, centred where theirs are.
-  const headBox = new THREE.Box3().setFromObject(head || model);
-  const size = headBox.getSize(new THREE.Vector3());
-  const k = Math.min(4.5, Math.max(1.2, HEAD_SIZE / Math.max(size.y, size.x * 0.8)));
-  const centre = headBox.getCenter(new THREE.Vector3());
-  orient.scale.setScalar(k);
-  // (orient turns the model round, so x flips)
-  orient.position.set(centre.x * k, HEAD_Y - centre.y * k, centre.z * k);
+  // Or, for a body shot, the whole fighter fitted head to feet.
+  if (shot === 'body') {
+    const box = new THREE.Box3().setFromObject(model);
+    const size = box.getSize(new THREE.Vector3()), centre = box.getCenter(new THREE.Vector3());
+    const k = Math.min(BODY_H / size.y, BODY_W / size.x);
+    orient.scale.setScalar(k);
+    orient.position.set(centre.x * k, BODY_TOP - box.max.y * k, centre.z * k);
+  } else {
+    const headBox = new THREE.Box3().setFromObject(head || model);
+    const size = headBox.getSize(new THREE.Vector3());
+    const k = Math.min(4.5, Math.max(1.2, HEAD_SIZE / Math.max(size.y, size.x * 0.8)));
+    const centre = headBox.getCenter(new THREE.Vector3());
+    orient.scale.setScalar(k);
+    // (orient turns the model round, so x flips)
+    orient.position.set(centre.x * k, HEAD_Y - centre.y * k, centre.z * k);
+  }
   rig.body.add(orient);
 
   if (head) {

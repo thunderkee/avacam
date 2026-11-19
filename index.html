@@ -1,0 +1,333 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<meta name="theme-color" content="#0d0d10">
+<meta name="description" content="AvaCam turns your camera into a live animated character. Record, swap characters and voices, export a vertical video.">
+<title>AvaCam</title>
+<!-- Installable app (PWA) -->
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="AvaCam">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,700&family=Fragment+Mono&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0d0d10;
+    --surface: rgba(24, 24, 30, 0.82);
+    --surface-solid: #18181e;
+    --line: rgba(255, 255, 255, 0.10);
+    --text: #f4f3f0;
+    --muted: #9a99a3;
+    --accent: #ff5a4e;
+    --ok: #3ddc84;
+    --warn: #ffb020;
+    --r-md: 12px;
+    --r-pill: 99px;
+    --sp-xs: 4px; --sp-sm: 8px; --sp-md: 12px; --sp-lg: 16px; --sp-xl: 20px; --sp-2xl: 24px; --sp-3xl: 32px;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  [hidden] { display: none !important; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
+    font-family: "DM Sans", system-ui, sans-serif; overflow: hidden; }
+  button, input, select { font: inherit; color: inherit; }
+  button { cursor: pointer; border: 0; background: none; }
+
+  #app { position: fixed; inset: 0; display: grid; place-items: center; }
+  /* 9:16 stage fits the viewport */
+  #stage { position: relative; height: 100%; aspect-ratio: 9 / 16; max-width: 100%;
+    background: #000; overflow: hidden; }
+  @media (max-aspect-ratio: 9/16) { #stage { width: 100%; height: auto; } }
+  @media (max-width: 600px) { #stage { width: 100%; height: 100%; aspect-ratio: auto; } }
+  #view { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+
+  .screen { position: absolute; inset: 0; display: none; flex-direction: column; }
+  .screen.on { display: flex; }
+
+  /* Top bar */
+  .top { display: flex; align-items: center; justify-content: space-between;
+    padding: calc(env(safe-area-inset-top) + var(--sp-lg)) var(--sp-lg) 0; gap: var(--sp-sm); }
+  .chip { display: inline-flex; align-items: center; gap: var(--sp-sm); padding: 8px 14px;
+    border-radius: var(--r-pill); background: var(--surface); backdrop-filter: blur(12px);
+    font-size: 13px; font-weight: 500; border: 1px solid var(--line); }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ok); }
+  .dot.warn { background: var(--warn); }
+  .dot.rec { background: var(--accent); animation: pulse 1s infinite; }
+  @keyframes pulse { 50% { opacity: .3; } }
+  .mono { font-family: "Fragment Mono", ui-monospace, monospace; font-variant-numeric: tabular-nums; }
+
+  /* PiP */
+  #pip { position: absolute; right: var(--sp-lg); top: calc(env(safe-area-inset-top) + 64px);
+    width: 26%; aspect-ratio: 3/4; border-radius: var(--r-md); overflow: hidden;
+    border: 1px solid var(--line); background: #111; display: none; }
+  #pip.on { display: block; }
+  #pip video { width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); }
+
+  .spacer { flex: 1; }
+
+  /* Bottom dock */
+  .dock { padding: var(--sp-lg) var(--sp-lg) calc(env(safe-area-inset-bottom) + var(--sp-xl));
+    display: flex; flex-direction: column; gap: var(--sp-lg);
+    background: linear-gradient(to top, rgba(0,0,0,.65), transparent); }
+  .carousel { display: flex; gap: var(--sp-sm); overflow-x: auto; scrollbar-width: none;
+    margin: 0 calc(var(--sp-lg) * -1); padding: 0 var(--sp-lg); scroll-snap-type: x proximity; }
+  .carousel::-webkit-scrollbar { display: none; }
+  .char-btn { flex: none; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 4px;
+    border-radius: var(--r-md); border: 2px solid transparent; font-size: 11px; color: var(--muted); scroll-snap-align: center; }
+  .char-btn .thumb { width: 52px; height: 52px; border-radius: 10px; background: var(--surface-solid) center / cover no-repeat;
+    position: relative; overflow: hidden; }
+  .char-btn .thumb img { width: 100%; height: 100%; object-fit: contain; display: block; }
+  .char-btn .tag { position: absolute; right: 3px; bottom: 3px; font: 700 8px/1 "Fragment Mono", monospace;
+    padding: 2px 3px; border-radius: 4px; background: rgba(0,0,0,.55); color: #fff; }
+  .char-btn.sel { border-color: var(--text); color: var(--text); }
+  #loadingChar { position: absolute; left: 50%; top: 40%; transform: translate(-50%, -50%); }
+
+  /* Voice effects */
+  .vchips { display: flex; flex-wrap: wrap; gap: var(--sp-sm); }
+  .vchip { padding: 7px 12px; border-radius: var(--r-pill); border: 1px solid var(--line); font-size: 13px; font-weight: 500;
+    background: var(--surface-solid); display: inline-flex; gap: 6px; align-items: center; }
+  .vchip.sel { background: var(--text); color: var(--bg); border-color: var(--text); }
+  .vstatus { font-size: 12px; color: var(--muted); min-height: 1em; }
+
+  /* Tracking readout */
+  #trackChip { cursor: pointer; }
+  .hud { margin: var(--sp-sm) var(--sp-lg) 0; padding: var(--sp-md) var(--sp-lg); width: min(260px, calc(100% - 32px));
+    background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-md); backdrop-filter: blur(12px);
+    display: grid; grid-template-columns: auto 1fr auto; gap: 10px 12px; align-items: center; font-size: 12px; }
+  .hud span { color: var(--muted); }
+  .hud b { font: 500 12px/1 "Fragment Mono", monospace; text-align: right; white-space: nowrap; }
+  .hud .gauge { width: 34px; height: 22px; position: relative; justify-self: end; }
+  .hud .meter { height: 6px; border-radius: var(--r-pill); background: var(--line); position: relative; overflow: hidden; }
+  .hud .meter i { position: absolute; top: 0; bottom: 0; left: 50%; width: 3px; margin-left: -1.5px; background: var(--text); border-radius: 2px; }
+  .hud .level { position: absolute; left: 3px; right: 3px; top: 50%; height: 2px; background: var(--text); border-radius: 2px; transform-origin: center; }
+  .hud .level::before { content: ""; position: absolute; inset: 0; background: var(--muted); opacity: .4; transform: rotate(0); }
+  .hud .pad { width: 34px; height: 22px; border-radius: 4px; border: 1px solid var(--line); position: relative; justify-self: end; }
+  .hud .pad i { position: absolute; width: 6px; height: 6px; margin: -3px 0 0 -3px; border-radius: 50%; background: var(--text); left: 50%; top: 50%; }
+  .hud .hint { grid-column: 1 / -1; color: var(--warn); font-size: 11px; min-height: 1em; }
+
+  .row { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-md); }
+  .icon-btn { width: 44px; height: 44px; border-radius: 50%; background: var(--surface);
+    border: 1px solid var(--line); display: grid; place-items: center; backdrop-filter: blur(12px); }
+  .icon-btn svg { width: 20px; height: 20px; }
+  .icon-btn.on { background: var(--text); color: var(--bg); }
+  #recBtn { width: 76px; height: 76px; border-radius: 50%; border: 4px solid #fff;
+    display: grid; place-items: center; }
+  #recBtn span { width: 58px; height: 58px; border-radius: 50%; background: var(--accent);
+    transition: all .2s; }
+  #recBtn.recording span { width: 28px; height: 28px; border-radius: 6px; }
+
+  #countdown { position: absolute; inset: 0; display: none; place-items: center;
+    font-size: 120px; font-weight: 700; text-shadow: 0 4px 30px rgba(0,0,0,.5); pointer-events: none; }
+  #countdown.on { display: grid; }
+
+  /* Overlay cards (start, calibration, export) */
+  .overlay { position: absolute; inset: 0; display: none; align-items: center; justify-content: center;
+    padding: var(--sp-3xl); background: rgba(13,13,16,.72); backdrop-filter: blur(8px); z-index: 5; }
+  .overlay.on { display: flex; }
+  .card { width: 100%; max-width: 340px; background: var(--surface-solid); border: 1px solid var(--line);
+    border-radius: var(--r-md); padding: var(--sp-2xl); display: flex; flex-direction: column; gap: var(--sp-lg);
+    text-align: center; }
+  .card h1 { margin: 0; font-size: 28px; letter-spacing: -0.02em; }
+  .card h2 { margin: 0; font-size: 20px; }
+  .card p { margin: 0; color: var(--muted); font-size: 14px; line-height: 1.5; }
+  .btn { padding: 14px 20px; border-radius: var(--r-pill); background: var(--text); color: var(--bg);
+    font-weight: 700; font-size: 15px; }
+  .btn.ghost { background: transparent; color: var(--text); border: 1px solid var(--line); }
+  .btn:disabled { opacity: .5; }
+  .bar { height: 6px; border-radius: var(--r-pill); background: var(--line); overflow: hidden; }
+  .bar i { display: block; height: 100%; width: 0; background: var(--text); transition: width .1s linear; }
+  .err { color: var(--warn) !important; }
+
+  /* Post panel */
+  #post .dock { gap: var(--sp-md); }
+  .tabs { display: flex; gap: 4px; padding: 4px; border-radius: var(--r-pill); background: var(--surface);
+    border: 1px solid var(--line); backdrop-filter: blur(12px); overflow-x: auto; scrollbar-width: none; }
+  .tabs button { flex: 1; padding: 8px 12px; border-radius: var(--r-pill); font-size: 13px; font-weight: 500;
+    color: var(--muted); white-space: nowrap; }
+  .tabs button.sel { background: var(--text); color: var(--bg); }
+  .panel { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-md);
+    padding: var(--sp-lg); backdrop-filter: blur(12px); min-height: 96px; display: none;
+    flex-direction: column; gap: var(--sp-md); }
+  .panel.on { display: flex; }
+  .panel label { display: flex; flex-direction: column; gap: 6px; font-size: 13px; color: var(--muted); }
+  .panel label b { color: var(--text); font-weight: 500; display: flex; justify-content: space-between; }
+  input[type=range] { width: 100%; accent-color: var(--text); }
+  .swatches { display: flex; gap: var(--sp-sm); flex-wrap: wrap; }
+  .sw { width: 36px; height: 36px; border-radius: 50%; border: 2px solid transparent; }
+  .sw.sel { border-color: var(--text); outline: 2px solid var(--bg); outline-offset: -4px; }
+  .sw.upload { display: grid; place-items: center; background: var(--surface-solid); border: 1px dashed var(--muted); }
+  .scrub { display: flex; align-items: center; gap: var(--sp-md); }
+  .scrub input { flex: 1; }
+  /* Settings */
+  #settingsBtn { padding: 8px; }
+  #settingsBtn svg { width: 16px; height: 16px; display: block; }
+  .card .menu { display: flex; flex-direction: column; gap: var(--sp-sm); text-align: left; }
+  .menu-item { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-md);
+    padding: var(--sp-md) var(--sp-lg); border-radius: var(--r-md); background: rgba(255,255,255,.04);
+    border: 1px solid var(--line); text-decoration: none; color: var(--text); font-size: 15px; font-weight: 500; text-align: left; }
+  .menu-item small { display: block; color: var(--muted); font-size: 12px; font-weight: 400; margin-top: 2px; }
+  .menu-item .go { color: var(--muted); }
+  .menu-item .switch { flex: none; width: 36px; height: 22px; border-radius: var(--r-pill); background: var(--line); position: relative; }
+  .menu-item .switch::after { content: ""; position: absolute; top: 3px; left: 3px; width: 16px; height: 16px;
+    border-radius: 50%; background: var(--muted); transition: transform .15s; }
+  .menu-item[aria-checked="true"] .switch { background: var(--ok); }
+  .menu-item[aria-checked="true"] .switch::after { transform: translateX(14px); background: #fff; }
+  .menu-item:disabled { opacity: .5; }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="stage">
+    <canvas id="view"></canvas>
+    <span class="chip" id="loadingChar" hidden>Loading character…</span>
+    <video id="cam" playsinline muted autoplay style="display:none"></video>
+
+    <!-- LIVE -->
+    <section id="live" class="screen">
+      <div class="top">
+        <span class="chip" id="trackChip" role="button" tabindex="0" title="Show what's being tracked"><span class="dot" id="trackDot"></span><span id="trackText">Tracking</span></span>
+        <span class="chip mono" id="timer" hidden><span class="dot rec"></span><span id="timerText">0:00</span></span>
+        <span class="spacer"></span>
+        <span class="chip mono" id="fps">-- fps</span>
+        <button class="chip" id="settingsBtn" title="Settings" aria-label="Settings">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        </button>
+      </div>
+      <div class="hud" id="hud" hidden>
+        <span>Distance</span><span class="meter" title="closer → right"><i id="hudDistBar"></i></span><b id="hudDist">--</b>
+        <span>Head tilt</span><span class="gauge"><i class="level" id="hudTiltLine"></i></span><b id="hudTilt">--</b>
+        <span>Shoulders</span><span class="gauge"><i class="level" id="hudShLine"></i></span><b id="hudSh">--</b>
+        <span>Movement</span><span class="pad"><i id="hudMoveDot"></i></span><b id="hudMove">--</b>
+        <span>Arms</span><span></span><b id="hudArms">--</b>
+        <span class="hint" id="hudHint"></span>
+      </div>
+      <div id="pip"><video id="pipVid" playsinline muted autoplay></video></div>
+      <div class="spacer"></div>
+      <div class="dock">
+        <div class="carousel" id="liveChars"></div>
+        <div class="row">
+          <button class="icon-btn" id="pipBtn" title="Show my camera" aria-label="Toggle camera picture-in-picture">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="5" width="15" height="14" rx="2"/><path d="M17 10l5-3v10l-5-3"/></svg>
+          </button>
+          <button id="recBtn" aria-label="Record"><span></span></button>
+          <button class="icon-btn" id="recalBtn" title="Recalibrate" aria-label="Recalibrate neutral face">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>
+          </button>
+        </div>
+      </div>
+      <div id="countdown"></div>
+    </section>
+
+    <!-- POST -->
+    <section id="post" class="screen">
+      <div class="top">
+        <button class="chip" id="backBtn">← Retake</button>
+        <span class="chip mono" id="durText">0:00</span>
+        <button class="chip" id="exportBtn" style="background:var(--text);color:var(--bg);font-weight:700">Export</button>
+      </div>
+      <div class="spacer" id="tapPlay"></div>
+      <div class="dock">
+        <div class="scrub">
+          <button class="icon-btn" id="playBtn" aria-label="Play or pause">
+            <svg id="playIco" viewBox="0 0 24 24" fill="currentColor"><path d="M7 4l13 8-13 8z"/></svg>
+          </button>
+          <input type="range" id="seek" min="0" max="1000" value="0" aria-label="Seek">
+        </div>
+        <div class="tabs" id="postTabs">
+          <button data-p="pChar" class="sel">Character</button>
+          <button data-p="pBg">Background</button>
+          <button data-p="pClean">Clean-up</button>
+          <button data-p="pVoice">Voice</button>
+          <button data-p="pTrim">Trim</button>
+        </div>
+        <div class="panel on" id="pChar"><div class="carousel" id="postChars"></div></div>
+        <div class="panel" id="pBg"><div class="swatches" id="bgSwatches"></div></div>
+        <div class="panel" id="pClean">
+          <label><b>Smoothing <span class="mono" id="smoothVal">40</span></b><input type="range" id="smooth" min="0" max="100" value="40"></label>
+          <label><b>Expression strength <span class="mono" id="gainVal">100%</span></b><input type="range" id="gain" min="40" max="200" value="100"></label>
+        </div>
+        <div class="panel" id="pVoice">
+          <div class="vchips" id="voiceChips"></div>
+          <label><b>Pitch <span class="mono" id="semiVal">0</span></b><input type="range" id="semis" min="-12" max="12" step="1" value="0"></label>
+          <span class="vstatus" id="voiceStatus"></span>
+        </div>
+        <div class="panel" id="pTrim">
+          <label><b>Start <span class="mono" id="tsVal">0.0s</span></b><input type="range" id="trimStart" min="0" max="1000" value="0"></label>
+          <label><b>End <span class="mono" id="teVal">0.0s</span></b><input type="range" id="trimEnd" min="0" max="1000" value="1000"></label>
+        </div>
+      </div>
+    </section>
+
+    <!-- START -->
+    <div class="overlay on" id="startOv">
+      <div class="card">
+        <h1>AvaCam</h1>
+        <p>Talk to your phone. A character moves with your face. Your camera image never leaves this device, and only motion and audio are recorded.</p>
+        <button class="btn" id="startBtn">Allow camera &amp; mic</button>
+        <button class="btn ghost" id="demoBtn">Try without camera</button>
+        <p id="startMsg"></p>
+        <button class="btn ghost" id="startSettingsBtn">Settings</button>
+      </div>
+    </div>
+
+    <!-- SETTINGS -->
+    <div class="overlay" id="settingsOv">
+      <div class="card">
+        <h2>Settings</h2>
+        <div class="menu">
+          <a class="menu-item" href="lab/"><span>Character Lab<small>Build your own 3D characters</small></span><span class="go">→</span></a>
+          <button class="menu-item" id="setHud" role="switch" aria-checked="false"><span>Tracking readout<small>Distance, tilt and movement while live</small></span><span class="switch"></span></button>
+          <button class="menu-item" id="setRecal"><span>Recalibrate<small>Hold a neutral face again</small></span><span class="go">→</span></button>
+        </div>
+        <button class="btn" id="settingsClose">Done</button>
+      </div>
+    </div>
+
+    <!-- CALIBRATE -->
+    <div class="overlay" id="calOv">
+      <div class="card">
+        <h2>Hold a neutral face</h2>
+        <p>Look at the screen, relax your mouth and brows.</p>
+        <div class="bar"><i id="calBar"></i></div>
+      </div>
+    </div>
+
+    <!-- EXPORT -->
+    <div class="overlay" id="expOv">
+      <div class="card">
+        <h2 id="expTitle">Exporting…</h2>
+        <p id="expMsg">Rendering 1080×1920</p>
+        <div class="bar"><i id="expBar"></i></div>
+        <button class="btn" id="expShare" hidden>Save video</button>
+        <button class="btn ghost" id="expCancel">Cancel</button>
+      </div>
+    </div>
+  </div>
+</div>
+<input type="file" id="bgFile" accept="image/*" hidden>
+
+<script src="blurb/cmu-dictionary.js"></script>
+<script src="blurb/lipsync.js"></script>
+<script src="blurb/motion.js"></script>
+<script src="blurb/face-sync.js"></script>
+<script src="blurb/rig.js"></script>
+<script src="blurb/svg-path.js"></script>
+<script src="blurb/character-kit.js"></script>
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+} }
+</script>
+<script type="module" src="js/app.js"></script>
+<script>
+  // Offline support and install: the service worker caches the app and its libraries.
+  if ('serviceWorker' in navigator) addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
+</script>
+</body>
+</html>

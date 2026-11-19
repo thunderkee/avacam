@@ -8,6 +8,7 @@ import { FPS, NEAR, sampleFromResult, poseFromResult, demoSample, solve, poseAt,
 import { BLURB_CAST, BlurbCharacter } from './blurb-render.js';
 import { TOY_CAST, ToyStage } from './toys3d.js';
 import { blurb3DCast } from './blurb3d.js';
+import { BDA_CAST } from './bda.js';
 import { VOICE_PRESETS, decode, applyVoice, toWav } from './voice-fx.js';
 
 const $ = (id) => document.getElementById(id);
@@ -18,7 +19,7 @@ const now = () => performance.now() / 1000;
 // --------------------------------------------------------------------- cast
 
 // 2D Blurb characters, then their 3D versions, then Puff / Neko / Bolt.
-const CAST = [...BLURB_CAST(), ...blurb3DCast(), ...TOY_CAST];
+const CAST = [...BLURB_CAST(), ...blurb3DCast(), ...TOY_CAST, ...BDA_CAST];
 const blurbChars = new Map(); // id → BlurbCharacter (built lazily)
 let toys = null;              // ToyStage, created on first 3D character
 const charFor = (entry) => {
@@ -138,6 +139,7 @@ function buildCarousel(el) {
 const toyThumbs = new Map();
 async function toyThumb(entry) {
   if (!toyThumbs.has(entry.id)) {
+    if (entry.ready) await entry.ready(); // a model loaded from a file (bdafighter): wait for it
     const cv = Object.assign(document.createElement('canvas'), { width: 120, height: 213 });
     const stage = charFor(entry);
     stage.setCharacter(entry);

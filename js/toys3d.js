@@ -240,7 +240,9 @@ export class ToyStage {
     this.camera.updateProjectionMatrix();
 
     const soft = (v, m) => m * Math.tanh(v / m);
-    r.head.rotation.set(soft(p.pitch, 30) * D2R * 0.9, soft(p.yaw, 50) * D2R, -p.roll * D2R);
+    // A model built facing away and turned round (r.faceBack) nods and tilts the other way in its own axes.
+    const fb = r.faceBack ? -1 : 1;
+    r.head.rotation.set(fb * soft(p.pitch, 30) * D2R * 0.9, soft(p.yaw, 50) * D2R, -fb * p.roll * D2R);
     r.body.rotation.y = soft(p.yaw, 50) * D2R * 0.25;
     r.body.scale.setScalar(1 + (-p.breath / 1.6) * 0.015);
     // Shoulders tilt and sway; the head rides on them and moves on its own a little.
@@ -269,7 +271,7 @@ export class ToyStage {
       r.head.position.copy(pivot).add(arm);
     } else {
       // Floating heads have no neck: they turn about their centre and (unless locked) drift a little.
-      if (r.locked) r.head.position.copy(hd.p0);
+      if (r.locked || r.headStill) r.head.position.copy(hd.p0);
       else {
         r.head.position.x = hd.p0.x + ((p.headX || 0) - (p.bodyX || 0)) * PX;
         r.head.position.y = hd.p0.y - ((p.headY || 0) - (p.bodyY || 0)) * PX;
@@ -297,6 +299,13 @@ export class ToyStage {
     });
 
     if (r.mouth) poseMouth(r.mouth, p);
+    // A hinged jaw (the bdafighter beasts) opens with the mouth, the way the game opens it (+x).
+    if (r.extra.jaw) {
+      const [, bh] = MOUTH[p.viseme] || MOUTH.REST;
+      const open = clamp01(bh * p.jaw * 1.4 + p.laugh * 0.5);
+      const j = r.extra.jaw; j.userData.open = (j.userData.open || 0) + (open - (j.userData.open || 0)) * 0.5;
+      j.rotation.x = j.userData.rest + j.userData.open * 0.6;
+    }
     // Blurb heads' glow breathes, a little brighter while talking.
     if (r.extra.glow) r.extra.glow.material.opacity = 0.6 + 0.25 * Math.sin(t * 1.7) + Math.min(0.15, r.mouth.h * 0.3);
     // Arms follow the performer's in 3D when in view (depth included: reaching toward the camera

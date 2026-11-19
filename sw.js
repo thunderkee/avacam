@@ -2,7 +2,7 @@
 //  - App files (same origin): network first, so a deploy shows up straight away; cache when offline.
 //  - CDN libraries and models (pinned versions): cache first, they never change at a given URL.
 // Bump VERSION on a deploy that changes the file list below.
-const VERSION = 'avacam-v2';
+const VERSION = 'avacam-v3';
 const APP_CACHE = `${VERSION}-app`;
 const CDN_CACHE = `${VERSION}-cdn`;
 

@@ -280,7 +280,11 @@ export class ToyStage {
 
     r.eyes.forEach((e, i) => {
       const blink = i === 0 ? p.blinkL : p.blinkR;
-      e.scale.y = Math.max(0.08, 1 - blink);
+      if (e.userData.lid) {
+        // Eyes with a lid (the bdafighter fighters): swap to the closed-eye line while blinking.
+        const shut = blink > 0.5;
+        e.visible = !shut; e.userData.lid.visible = shut;
+      } else e.scale.y = Math.max(0.08, 1 - blink);
       // Googly / doll eyes move the iris (userData.pupil); bead eyes move the whole eye.
       const look = e.userData.pupil || e, travel = e.userData.travel || 0.05;
       look.userData.x0 ??= look.position.x; look.userData.y0 ??= look.position.y;
@@ -304,7 +308,7 @@ export class ToyStage {
       const [, bh] = MOUTH[p.viseme] || MOUTH.REST;
       const open = clamp01(bh * p.jaw * 1.4 + p.laugh * 0.5);
       const j = r.extra.jaw; j.userData.open = (j.userData.open || 0) + (open - (j.userData.open || 0)) * 0.5;
-      j.rotation.x = j.userData.rest + j.userData.open * 0.6;
+      j.rotation.x = j.userData.rest + (j.userData.sign ?? 1) * j.userData.open * 0.6;
     }
     // Blurb heads' glow breathes, a little brighter while talking.
     if (r.extra.glow) r.extra.glow.material.opacity = 0.6 + 0.25 * Math.sin(t * 1.7) + Math.min(0.15, r.mouth.h * 0.3);

@@ -77,7 +77,21 @@ async function load(file, rig) {
     rig.body.remove(rig.head);
     rig.head = pivot;
   }
-  rig.eyes = eyes.map((e) => { e.userData.travel = 0.012; return e; });
-  if (jaw) { rig.extra.jaw = jaw; jaw.userData.rest = jaw.rotation.x; }
+  // Closed eyes: a dark lid line over each eye, shown while blinking (squashing these eyes barely shows).
+  const lidMat = new THREE.MeshStandardMaterial({ color: '#1b1b24', roughness: 0.6 });
+  rig.eyes = eyes.map((e) => {
+    e.userData.travel = 0.012;
+    e.geometry.computeBoundingBox();
+    const box = e.geometry.boundingBox.clone().applyMatrix4(e.matrix); // in the eye's parent space
+    const size = box.getSize(new THREE.Vector3()), c = box.getCenter(new THREE.Vector3());
+    const lid = new THREE.Mesh(new THREE.BoxGeometry(size.x * 1.08, Math.max(size.y * 0.24, size.x * 0.14), Math.max(size.z * 0.5, 0.01)), lidMat);
+    lid.position.set(c.x, c.y - size.y * 0.08, box.min.z - 0.004); // just in front (the fighters face -z)
+    lid.visible = false;
+    e.parent.add(lid);
+    e.userData.lid = lid;
+    return e;
+  });
+  // These jaws hinge the other way from the game's usual (+x opened them shut), so they open on -x.
+  if (jaw) { rig.extra.jaw = jaw; jaw.userData.rest = jaw.rotation.x; jaw.userData.sign = -1; }
   return rig;
 }

@@ -1,0 +1,11 @@
+# Not part of the app: kept out of the Cloudflare upload
+.git
+.gitignore
+.nojekyll
+.assetsignore
+.wrangler
+wrangler.jsonc
+node_modules
+serve.mjs
+sync-blurb.sh
+README.md

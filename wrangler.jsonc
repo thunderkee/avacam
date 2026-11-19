@@ -1,0 +1,7 @@
+// Cloudflare deploy: a static-assets Worker serving this folder as AvaCam.
+// Deploy with:  npx wrangler deploy
+{
+  "name": "avacam",
+  "compatibility_date": "2026-11-18",
+  "assets": { "directory": "." }
+}

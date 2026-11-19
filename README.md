@@ -2,7 +2,7 @@
 
 Turn your phone's camera into a live animated character. Talk, and the character follows your face, head, shoulders and arms. Record, then swap the character, background and voice, and export a 9:16 video.
 
-**Live:** https://thunderkee.github.io/avacam/ (an installable PWA: "Add to Home Screen" on iOS, "Install app" on Android/Chrome).
+**Live:** https://avacam.kenneth-mhakim.workers.dev (an installable PWA: "Add to Home Screen" on iOS, "Install app" on Android/Chrome).
 
 ## What it does
 
@@ -27,4 +27,10 @@ Then open http://localhost:8797. The camera needs `localhost` or HTTPS.
 
 ## Deploying
 
-GitHub Pages serves `main` from the repo root. After changing which files the app uses, bump `VERSION` in `sw.js` so installed copies pick up the new file list.
+Cloudflare serves it as a static-assets Worker named `avacam` (see `wrangler.jsonc`; `.assetsignore` keeps dev files out):
+
+```bash
+npx wrangler deploy
+```
+
+After changing which files the app uses, bump `VERSION` in `sw.js` so installed copies pick up the new file list.

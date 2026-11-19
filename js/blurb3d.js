@@ -201,7 +201,7 @@ function buildPerson3D(cfg, rig) {
   }
 
   // Neck, outfit and arms (sleeves in the outfit colour, hands in skin)
-  const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.33, 0.38, 0.8, 32), skin); neck.position.y = -1.05; body.add(neck);
+  const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.33, 0.38, 0.8, 32), skin); neck.position.y = -1.05; body.add(neck); rig.neckY = -0.7;
   const cloth = vinyl(cfg.outfitColor, { clearcoat: 0.15, roughness: 0.7 });
   const torso = new THREE.Mesh(new THREE.CapsuleGeometry(0.7, 1.6, 16, 40), cloth); torso.scale.set(1.9, 1, 0.78); torso.position.y = -2.85; body.add(torso);
   const front = 0.7 * 0.78;

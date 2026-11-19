@@ -110,7 +110,7 @@ function build(id) {
     const skull = sphere(1, skin); skull.scale.set(1.05, 0.95, 0.9); head.add(skull);
     const shirt = vinyl('#FF9A86');
     const torso = new THREE.Mesh(new THREE.CapsuleGeometry(0.58, 1.0, 12, 32), shirt); torso.scale.set(1.12, 1, 0.8); torso.position.y = -1.76; body.add(torso);
-    const neckP = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.36, 0.3, 32), skin); neckP.position.y = -0.72; body.add(neckP);
+    const neckP = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.36, 0.3, 32), skin); neckP.position.y = -0.72; body.add(neckP); rig.neckY = -0.6;
     const belly = sphere(0.42, vinyl('#FFE1D6')); belly.scale.set(1, 1.1, 0.4); belly.position.set(0, -1.52, 0.38); body.add(belly);
     addArms(rig, { x: 0.66, y: -0.98, upper: 0.42, lower: 0.36, r: 0.15, mat: shirt,
       hand: () => { const m = sphere(0.17, skin); m.scale.set(1, 0.9, 0.85); return m; } });
@@ -134,7 +134,7 @@ function build(id) {
     const skull = sphere(1, fur); skull.scale.set(1.1, 0.92, 0.9); head.add(skull);
     const coat = vinyl('#3A3F58');
     const torso = new THREE.Mesh(new THREE.CapsuleGeometry(0.55, 1.0, 12, 32), coat); torso.scale.set(1.1, 1, 0.78); torso.position.y = -1.76; body.add(torso);
-    const neckN = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.34, 0.3, 32), fur); neckN.position.y = -0.7; body.add(neckN);
+    const neckN = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.34, 0.3, 32), fur); neckN.position.y = -0.7; body.add(neckN); rig.neckY = -0.58;
     const chest = sphere(0.36, vinyl('#EEEAF5')); chest.scale.set(1, 1.3, 0.4); chest.position.set(0, -1.32, 0.36); body.add(chest);
     addArms(rig, { x: 0.62, y: -1.0, upper: 0.42, lower: 0.38, r: 0.13, mat: coat,
       hand: () => {
@@ -170,7 +170,7 @@ function build(id) {
     const skull = new THREE.Mesh(new RoundedBoxGeometry(1.9, 1.6, 1.5, 6, 0.32), shell); head.add(skull);
     const plate = vinyl('#AEB8C2', { metalness: 0.2 });
     const metal = vinyl('#8B96A3', { metalness: 0.5 });
-    const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.26, 0.3, 24), metal); neck.position.y = -0.74; body.add(neck);
+    const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.26, 0.3, 24), metal); neck.position.y = -0.74; body.add(neck); rig.neckY = -0.62;
     const torso = new THREE.Mesh(new RoundedBoxGeometry(1.45, 1.9, 1.05, 6, 0.28), plate); torso.position.y = -1.8; body.add(torso);
     const panel = new THREE.Mesh(new RoundedBoxGeometry(0.7, 0.45, 0.06, 3, 0.05), new THREE.MeshStandardMaterial({ color: '#10141a', roughness: 0.2 }));
     panel.position.set(0, -1.35, 0.53); body.add(panel);
@@ -249,16 +249,27 @@ export class ToyStage {
     r.body.rotation.z = -(p.bodyRoll || 0) * D2R;
     r.root.position.x = (p.bodyX || 0) * PX;
     r.root.position.y = Math.sin(t * 0.7) * 0.03 - (p.bodyY || 0) * PX;
-    r.head.userData.p0 ??= r.head.position.clone();
-    r.head.position.x = r.head.userData.p0.x + ((p.headX || 0) - (p.bodyX || 0)) * PX;
-    r.head.position.y = r.head.userData.p0.y - ((p.headY || 0) - (p.bodyY || 0)) * PX;
-    // Leaning in brings the whole character closer, like the camera.
-    // Closeness, exaggerated: the whole character from shoulder width, the head on top when it leans in further.
+    // Closeness: leaning in brings the whole character closer, like the camera; the head may grow a
+    // little more when it leans in past the shoulders, but stays in proportion (NEAR.head).
     const range = (v, { amp, min, max }) => Math.min(max, Math.max(min, 1 + (v - 1) * amp));
     const nb = p.nearBody ?? 1, nh = p.nearHead ?? nb;
     r.root.scale.setScalar(range(nb, NEAR.body));
-    r.head.userData.s0 ??= r.head.scale.x; // a head built at its own size keeps it
-    r.head.scale.setScalar(r.head.userData.s0 * range(nh / nb, NEAR.head));
+    const hd = r.head.userData;
+    hd.p0 ??= r.head.position.clone();
+    hd.s0 ??= r.head.scale.x; // a head built at its own size keeps it
+    const grow = range(nh / nb, NEAR.head);
+    r.head.scale.setScalar(hd.s0 * grow);
+    if (r.neckY != null) {
+      // The head turns, nods, tilts and grows about the top of the neck, which follows the shoulders'
+      // tilt, so the head never comes off the neck. (It moves with the body, not on its own.)
+      const pivot = _v1.set(0, r.neckY, 0).applyQuaternion(r.body.quaternion);
+      const arm = _v2.set(hd.p0.x, (hd.p0.y - r.neckY) * grow, hd.p0.z).applyEuler(r.head.rotation);
+      r.head.position.copy(pivot).add(arm);
+    } else {
+      // Floating heads have no neck: they turn about their centre and drift a little on their own.
+      r.head.position.x = hd.p0.x + ((p.headX || 0) - (p.bodyX || 0)) * PX;
+      r.head.position.y = hd.p0.y - ((p.headY || 0) - (p.bodyY || 0)) * PX;
+    }
 
     r.eyes.forEach((e, i) => {
       const blink = i === 0 ? p.blinkL : p.blinkR;

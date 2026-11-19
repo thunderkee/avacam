@@ -204,10 +204,10 @@ function armTracks(all, n) {
 }
 // How strongly closeness to the camera shows (1 = true to life). Kept here so it's easy to tune.
 export const NEAR = {
-  head2D: { amp: 2.2, min: 0.6, max: 1.9 },  // 2D characters' head scale
-  body: { amp: 2.6, min: 0.55, max: 2.3 },   // 3D: whole character, from shoulder width
-  head: { amp: 2.6, min: 0.7, max: 1.9 },    // 3D: head on top of that, when it leans in past the shoulders
-  hand: { full: 0.28, grow: 2.2, fore: 0.8, upper: 0.3 }, // 3D: reach (m) for full effect; hand / forearm / upper-arm growth
+  head2D: { amp: 1.3, min: 0.85, max: 1.25 },  // 2D characters' head scale
+  body: { amp: 1.4, min: 0.8, max: 1.4 },      // 3D: whole character, from shoulder width
+  head: { amp: 1.0, min: 0.92, max: 1.1 },     // 3D: head on top of that, kept in proportion with the body
+  hand: { full: 0.35, grow: 0.9, fore: 0.35, upper: 0.12 }, // 3D: reach (m) for full effect; hand / forearm / upper-arm growth
 };
 
 /**
@@ -229,7 +229,7 @@ function nearTracks(all, calibDur, n) {
       while (j < pts.length - 1 && Math.abs(pts[j + 1].t - t) <= Math.abs(pts[j].t - t)) j++;
       vals.push(invert ? rest / pts[j].v : pts[j].v / rest);
     }
-    return Motion.decimate(Motion.smooth(vals, 3), 0.004, 3);
+    return Motion.decimate(Motion.smooth(vals, 5), 0.004, 3); // steadier: no jumps from tracker jitter
   };
   return {
     head: series((smp) => (smp.m ? Math.abs(smp.m[14]) : NaN), true),

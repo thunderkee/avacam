@@ -40,7 +40,13 @@ async function rasterise(c, part, box, scale) {
 }
 
 export class BlurbCharacter {
-  constructor(entry) { this.entry = entry; this.c = CharacterKit.build(entry.cfg); this.bitmaps = null; }
+  constructor(entry) {
+    this.entry = entry; this.c = CharacterKit.build(entry.cfg); this.bitmaps = null;
+    // Blob heads (Blurb's "Head" base) are locked in the centre of the frame, centred on the face.
+    this.locked = entry.cfg.base === 'head';
+    const c = this.c, eyeY = c.eyes ? (c.eyes.L.y + c.eyes.R.y) / 2 : c.size.height / 2;
+    this.center = { x: c.size.width / 2, y: (eyeY + (c.mouth ? c.mouth.y : eyeY)) / 2 };
+  }
 
   get size() { return this.c.size; }
 
@@ -66,7 +72,12 @@ export class BlurbCharacter {
   /** Rig the whole performance (Rig.buildCharacterRig) — cache per tracks object. */
   rigFor(tracks) {
     if (this._rigTracks !== tracks) {
-      this._rig = Rig.buildCharacterRig(this.c, { set: 'visemes', segments: tracks.segments, extras: tracks.extras, totalFrames: tracks.n, fps: 30 });
+      // Locked heads keep turns, nods, tilts and expressions but not movement or scale (closeness
+      // scales the whole drawing about the centre instead; see renderScene).
+      const extras = this.locked && tracks.extras.head
+        ? { ...tracks.extras, head: { ...tracks.extras.head, x: undefined, y: undefined, scale: undefined }, body: undefined }
+        : tracks.extras;
+      this._rig = Rig.buildCharacterRig(this.c, { set: 'visemes', segments: tracks.segments, extras, totalFrames: tracks.n, fps: 30 });
       this._rigTracks = tracks;
     }
     return this._rig;

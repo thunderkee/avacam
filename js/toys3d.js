@@ -112,7 +112,7 @@ function build(id) {
     const torso = new THREE.Mesh(new THREE.CapsuleGeometry(0.58, 1.0, 12, 32), shirt); torso.scale.set(1.12, 1, 0.8); torso.position.y = -1.76; body.add(torso);
     const neckP = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.36, 0.3, 32), skin); neckP.position.y = -0.72; body.add(neckP); rig.neckY = -0.6;
     const belly = sphere(0.42, vinyl('#FFE1D6')); belly.scale.set(1, 1.1, 0.4); belly.position.set(0, -1.52, 0.38); body.add(belly);
-    addArms(rig, { x: 0.66, y: -0.98, upper: 0.42, lower: 0.36, r: 0.15, mat: shirt,
+    addArms(rig, { x: 0.66, y: -0.98, upper: 0.78, lower: 0.72, r: 0.13, mat: shirt,
       hand: () => { const m = sphere(0.17, skin); m.scale.set(1, 0.9, 0.85); return m; } });
     for (const s of [-1, 1]) {
       const e = beadEye(0.13, ink()); e.position.set(s * 0.36, 0.08, 0.86); head.add(e); rig.eyes.push(e);
@@ -136,7 +136,7 @@ function build(id) {
     const torso = new THREE.Mesh(new THREE.CapsuleGeometry(0.55, 1.0, 12, 32), coat); torso.scale.set(1.1, 1, 0.78); torso.position.y = -1.76; body.add(torso);
     const neckN = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.34, 0.3, 32), fur); neckN.position.y = -0.7; body.add(neckN); rig.neckY = -0.58;
     const chest = sphere(0.36, vinyl('#EEEAF5')); chest.scale.set(1, 1.3, 0.4); chest.position.set(0, -1.32, 0.36); body.add(chest);
-    addArms(rig, { x: 0.62, y: -1.0, upper: 0.42, lower: 0.38, r: 0.13, mat: coat,
+    addArms(rig, { x: 0.62, y: -1.0, upper: 0.76, lower: 0.7, r: 0.115, mat: coat,
       hand: () => {
         const paw = new THREE.Group();
         const pad = sphere(0.16, vinyl('#EEEAF5')); pad.scale.set(1, 0.85, 0.9); paw.add(pad);
@@ -176,7 +176,7 @@ function build(id) {
     panel.position.set(0, -1.35, 0.53); body.add(panel);
     const light = sphere(0.07, new THREE.MeshBasicMaterial({ color: '#5EF0FF' })); light.position.set(-0.18, -1.35, 0.57); body.add(light);
     for (const sd of [-1, 1]) { const joint = sphere(0.2, metal); joint.position.set(sd * 0.8, -1.07, 0); body.add(joint); }
-    addArms(rig, { x: 0.8, y: -1.07, upper: 0.4, lower: 0.36, r: 0.1, mat: metal,
+    addArms(rig, { x: 0.8, y: -1.07, upper: 0.72, lower: 0.66, r: 0.095, mat: metal,
       hand: (sd) => {
         const claw = new THREE.Group();
         const palm = sphere(0.12, plate); claw.add(palm);
@@ -249,6 +249,8 @@ export class ToyStage {
     r.body.rotation.z = -(p.bodyRoll || 0) * D2R;
     r.root.position.x = (p.bodyX || 0) * PX;
     r.root.position.y = Math.sin(t * 0.7) * 0.03 - (p.bodyY || 0) * PX;
+    // Blob heads are locked to the centre of the frame (where the camera aims): no drift, sway or bob.
+    if (r.locked) r.root.position.set(0, -0.35, 0);
     // Closeness: leaning in brings the whole character closer, like the camera; the head may grow a
     // little more when it leans in past the shoulders, but stays in proportion (NEAR.head).
     const range = (v, { amp, min, max }) => Math.min(max, Math.max(min, 1 + (v - 1) * amp));
@@ -266,9 +268,12 @@ export class ToyStage {
       const arm = _v2.set(hd.p0.x, (hd.p0.y - r.neckY) * grow, hd.p0.z).applyEuler(r.head.rotation);
       r.head.position.copy(pivot).add(arm);
     } else {
-      // Floating heads have no neck: they turn about their centre and drift a little on their own.
-      r.head.position.x = hd.p0.x + ((p.headX || 0) - (p.bodyX || 0)) * PX;
-      r.head.position.y = hd.p0.y - ((p.headY || 0) - (p.bodyY || 0)) * PX;
+      // Floating heads have no neck: they turn about their centre and (unless locked) drift a little.
+      if (r.locked) r.head.position.copy(hd.p0);
+      else {
+        r.head.position.x = hd.p0.x + ((p.headX || 0) - (p.bodyX || 0)) * PX;
+        r.head.position.y = hd.p0.y - ((p.headY || 0) - (p.bodyY || 0)) * PX;
+      }
     }
 
     r.eyes.forEach((e, i) => {

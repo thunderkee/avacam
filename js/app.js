@@ -4,7 +4,7 @@
 // Blurb characters are posed by Blurb's own FaceSync + Rig (blurb/*.js); the 3D
 // characters read the same tracks as plain numbers (performance.js → poseAt).
 /* global Motion, LipSync */
-import { FPS, sampleFromResult, poseFromResult, demoSample, solve, poseAt, LiveSolver } from './performance.js';
+import { FPS, NEAR, sampleFromResult, poseFromResult, demoSample, solve, poseAt, LiveSolver } from './performance.js';
 import { BLURB_CAST, BlurbCharacter } from './blurb-render.js';
 import { TOY_CAST, ToyStage } from './toys3d.js';
 import { blurb3DCast } from './blurb3d.js';
@@ -96,8 +96,17 @@ function renderScene(ctx, w, h, tracks, f, t, entry, bg) {
     // Half-body art (400×500): bottom-aligned, full width on a 9:16 frame.
     const { width: aw, height: ah } = ch.size;
     const s = Math.min(w / aw, (h * 0.74) / ah);
-    ctx.translate((w - aw * s) / 2, h - ah * s);
-    ctx.scale(s, s);
+    if (ch.locked) {
+      // Blob heads: the face at the centre of the frame; leaning in scales it from there.
+      const near = tracks.extras.near?.head ? Motion.valueAt(tracks.extras.near.head, f) : 1;
+      const k = clamp(1 + (near - 1) * NEAR.head2D.amp, NEAR.head2D.min, NEAR.head2D.max);
+      ctx.translate(w / 2, h / 2);
+      ctx.scale(s * k, s * k);
+      ctx.translate(-ch.center.x, -ch.center.y);
+    } else {
+      ctx.translate((w - aw * s) / 2, h - ah * s);
+      ctx.scale(s, s);
+    }
     if (!ch.bitmaps) { ch.load(); drawn = false; } else ch.draw(ctx, tracks, f);
   }
   ctx.restore();

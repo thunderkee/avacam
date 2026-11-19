@@ -90,7 +90,7 @@ function buildHead3D(cfg, rig) {
   }
   const glow = softSprite(pal.glow[0], 0.9); glow.position.set(0, 0, -1.4); glow.scale.set(4.4, 4.4, 1); head.add(glow);
   rig.extra.glow = glow;
-  const shadow = softSprite('#000000', 0.22); shadow.position.set(0, -1.75, -0.5); shadow.scale.set(2.4, 0.5, 1); rig.root.add(shadow);
+  const shadow = softSprite('#000000', 0.22); shadow.position.set(0, -1.45, -0.5); shadow.scale.set(2.4, 0.5, 1); rig.root.add(shadow);
 
   for (const s of [-1, 1]) {
     const e = eye3D(cfg.eyes, { ink: cfg.inkColor, size: cfg.eyes === 'googly' ? 1.15 : 1 });
@@ -111,8 +111,9 @@ function buildHead3D(cfg, rig) {
     const knot = sphere(0.11, vinyl(shade(cfg.extraColor, 0.85))); knot.position.z = 0.05; bow.add(knot);
     head.add(bow); rig.extra.spring = bow;
   }
-  head.position.y = 0.1;
+  head.position.y = 0;
   head.scale.setScalar(cfg.shape === 'cloud' ? 0.98 : 1.12);
+  rig.locked = true; // blob heads stay in the centre of the frame
 }
 
 /** Half-body person (Blurb's "Character" and "Flat" bases), with sleeved arms. */
@@ -216,7 +217,7 @@ function buildPerson3D(cfg, rig) {
     const collar = new THREE.Mesh(new THREE.TorusGeometry(0.46, 0.1, 12, 40), rib); collar.rotation.x = Math.PI / 2; collar.position.y = -1.32; body.add(collar);
     const zip = new THREE.Mesh(new THREE.BoxGeometry(0.04, 1.2, 0.03), new THREE.MeshStandardMaterial({ color: '#C9C9C9', metalness: 0.6, roughness: 0.3 })); zip.position.set(0, -2.0, front + 0.02); body.add(zip);
   }
-  addArms(rig, { x: 1.12, y: -1.55, upper: 0.62, lower: 0.55, r: 0.19, mat: cloth,
+  addArms(rig, { x: 1.12, y: -1.55, upper: 0.95, lower: 0.88, r: 0.17, mat: cloth,
     hand: () => { const h = sphere(0.2, skin); h.scale.set(0.95, 1.05, 0.8); return h; } });
   head.position.y = 0.2;
 }

@@ -154,5 +154,9 @@ async function load({ file, shot = 'upper' }, rig) {
   });
   // These jaws hinge the other way from the game's usual (+x opened them shut), so they open on -x.
   if (jaw) { rig.extra.jaw = jaw; jaw.userData.rest = jaw.rotation.x; jaw.userData.sign = -1; }
+  // No jaw on the head (none at all, or one low on the body like Wyvern's and Tyrant King's): the
+  // head stretches and squashes as they talk.
+  let o = jaw; while (o && o !== rig.head) o = o.parent;
+  rig.talkScale = !o;
   return rig;
 }

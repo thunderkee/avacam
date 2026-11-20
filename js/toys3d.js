@@ -319,12 +319,27 @@ export class ToyStage {
     });
 
     if (r.mouth) poseMouth(r.mouth, p);
-    // A hinged jaw (the bdafighter beasts) opens with the mouth, the way the game opens it (+x).
+    // A hinged jaw (the bdafighter beasts) opens with the mouth, the way the game opens it (+x):
+    // wide on open vowels, wider when laughing, a little agape when surprised; it narrows on round
+    // vowels (O, U) and widens with a smile.
+    const [, bh] = MOUTH[p.viseme] || MOUTH.REST;
+    const round = p.viseme === 'O' || p.viseme === 'U';
+    const surprise = Math.max(0, ((p.browL || 0) + (p.browR || 0)) / 2);
     if (r.extra.jaw) {
-      const [, bh] = MOUTH[p.viseme] || MOUTH.REST;
-      const open = clamp01(bh * p.jaw * 1.4 + p.laugh * 0.5);
-      const j = r.extra.jaw; j.userData.open = (j.userData.open || 0) + (open - (j.userData.open || 0)) * 0.5;
-      j.rotation.x = j.userData.rest + (j.userData.sign ?? 1) * j.userData.open * 0.6;
+      const open = clamp01(bh * p.jaw * 1.7 + p.laugh * 0.7 + surprise * 0.2);
+      const j = r.extra.jaw; j.userData.open = (j.userData.open || 0) + (open - (j.userData.open || 0)) * 0.55;
+      j.rotation.x = j.userData.rest + (j.userData.sign ?? 1) * j.userData.open * 0.85;
+      j.userData.s0 ??= j.scale.clone();
+      j.scale.x = j.userData.s0.x * (1 + p.smile * 0.1 - (round ? 0.12 : 0));
+    }
+    if (r.talkScale) {
+      // Fighters with no mouth on their head talk with the whole head: it stretches up as the mouth opens (about
+      // its base, so it stays on the body), slims on round vowels and squashes wide with a smile.
+      const open = clamp01(bh * p.jaw * 1.6 + p.laugh * 0.6);
+      hd.talk = (hd.talk || 0) + (open - (hd.talk || 0)) * 0.55;
+      const sx = 1 - hd.talk * 0.05 + p.smile * 0.05 - (round ? hd.talk * 0.05 : 0);
+      const sy = 1 + hd.talk * 0.2 + surprise * 0.04 - p.smile * 0.03 - p.frown * 0.03;
+      r.head.scale.set(r.head.scale.x * sx, r.head.scale.y * sy, r.head.scale.z * sx);
     }
     // Blurb heads' glow breathes, a little brighter while talking.
     if (r.extra.glow) r.extra.glow.material.opacity = 0.6 + 0.25 * Math.sin(t * 1.7) + Math.min(0.15, r.mouth.h * 0.3);

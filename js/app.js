@@ -10,6 +10,7 @@ import { TOY_CAST, ToyStage } from './toys3d.js';
 import { blurb3DCast } from './blurb3d.js';
 import { BDA_CAST } from './bda.js';
 import { VOICE_PRESETS, decode, applyVoice, toWav } from './voice-fx.js';
+import { extractCaptions, captionAt, drawCaption, toSrt, languageName } from './captions.js';
 
 const $ = (id) => document.getElementById(id);
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
@@ -430,11 +431,13 @@ async function stopRecording() {
 const post = { audioEl: null, playing: false, clockT0: 0, clockPos: 0, smooth: 0.2, strength: 1, trimS: 0, trimE: 1, tracks: null,
   buffer: null,           // the recorded voice, decoded
   voice: 'none', semis: 0, // voice effect choice (kept across takes)
-  fxBuffer: null, fxJob: 0 };
+  fxBuffer: null, fxJob: 0,
+  captions: null, capOn: true, capJob: 0 }; // captions: { language, lines } for this take
 
 function openPost(proj) {
   state.proj = proj;
   post.trimS = 0; post.trimE = proj.duration; post.clockPos = 0; post.buffer = null; post.fxBuffer = null; post.fxJob++; $('fxOv').classList.remove('on');
+  post.captions = null; post.capJob++; buildCaptionPanel();
   $('trimStart').value = 0; $('trimEnd').value = 1000;
   post.audioEl?.pause();
   post.audioEl = null;
@@ -539,6 +542,8 @@ function postTick() {
   if (post.playing && t >= post.trimE) { setPlaying(false); seekTo(post.trimE); t = post.trimE; }
   if (!seeking) $('seek').value = Math.round((t / state.proj.duration) * 1000);
   renderScene(vctx, view.width, view.height, post.tracks, frameAt(t), t, state.entry, state.bg);
+  drawCaptionAt(vctx, view.width, view.height, t, dockTop());
+  highlightCaption(t);
 }
 
 $('playBtn').onclick = () => setPlaying(!post.playing);
@@ -632,6 +637,81 @@ function buildExportOpts() {
   $('expMsg').textContent = `About ${(mbMin * dur / 60).toFixed(1)} MB for ${dur.toFixed(1)} s (${(bitrate() / 1e6).toFixed(1)} Mbps)`;
 }
 
+// ------------------------------------------------------------------ captions
+// The original voice (before any effect) is transcribed, in whatever language it's spoken, into
+// short timed lines; they're drawn on the preview and burned into the export, and can be edited.
+
+const drawCaptionAt = (ctx, w, h, t, maxBottom) => { if (post.captions && post.capOn) drawCaption(ctx, w, h, captionAt(post.captions.lines, t), maxBottom); };
+// In the preview the controls cover the bottom of the picture: keep the caption above them.
+const dockTop = () => {
+  const v = view.getBoundingClientRect(), d = document.querySelector('#post .dock').getBoundingClientRect();
+  return v.height ? ((d.top - v.top) / v.height) * view.height : view.height;
+};
+
+function buildCaptionPanel() {
+  const c = post.captions, list = $('capList');
+  list.textContent = '';
+  $('capTools').hidden = !c?.lines.length;
+  $('capGo').textContent = c ? 'Extract again' : 'Extract captions';
+  $('capGo').disabled = !state.proj?.audio;
+  if (!state.proj?.audio) $('capStatus').textContent = 'This take has no sound to caption.';
+  if (!c) return;
+  for (const l of c.lines) {
+    const row = document.createElement('div'); row.className = 'capline';
+    const at = document.createElement('span'); at.className = 'mono'; at.textContent = l.start.toFixed(1) + 's';
+    at.onclick = () => seekTo(l.start);
+    const inp = document.createElement('input'); inp.value = l.text; inp.setAttribute('aria-label', `Caption at ${l.start.toFixed(1)} seconds`);
+    inp.oninput = () => { l.text = inp.value; if (!post.playing) postTick(); };
+    inp.onfocus = () => { setPlaying(false); seekTo(l.start + 0.05); };
+    row.append(at, inp); list.append(row);
+  }
+}
+
+let capLit = -1;
+function highlightCaption(t) {
+  const lines = post.captions?.lines;
+  if (!lines) return;
+  const i = lines.findIndex((l, k) => t >= l.start && t < (lines[k + 1]?.start ?? l.end + 0.5));
+  if (i === capLit) return;
+  capLit = i;
+  [...$('capList').children].forEach((r, k) => r.classList.toggle('now', k === i));
+  if (i >= 0 && document.activeElement?.parentElement?.parentElement !== $('capList')) $('capList').children[i]?.scrollIntoView({ block: 'nearest' });
+}
+
+$('capGo').onclick = async () => {
+  if (!state.proj?.audio) return;
+  const job = ++post.capJob, status = $('capStatus');
+  $('capGo').disabled = true; status.classList.remove('err');
+  status.textContent = 'Preparing…';
+  try {
+    post.buffer ||= await decode(state.proj.audio);
+    const res = await extractCaptions(post.buffer, {
+      language: $('capLang').value,
+      onStatus: (m) => {
+        if (job !== post.capJob) return;
+        if (m.stage === 'download') status.textContent = `Downloading speech model… ${Math.round(m.value * 100)}%`;
+        else if (m.stage === 'listen') status.textContent = 'Listening…';
+        else if (m.stage === 'language') status.textContent = `Heard ${languageName(m.language)}. Writing captions…`;
+      },
+    });
+    if (job !== post.capJob) return;
+    post.captions = res; capLit = -1;
+    status.textContent = res.lines.length ? `${languageName(res.language)} · ${res.lines.length} lines. Tap a line to edit it.` : 'No speech found in this take.';
+    buildCaptionPanel();
+    if (!post.playing) postTick();
+  } catch (e) {
+    if (job !== post.capJob) return;
+    status.textContent = `Couldn't make captions: ${e.message}`; status.classList.add('err');
+  }
+  $('capGo').disabled = false;
+};
+$('capOn').onchange = (e) => { post.capOn = e.target.checked; if (!post.playing) postTick(); };
+$('capSrt').onclick = () => {
+  const srt = toSrt(post.captions.lines, post.trimS, post.trimE);
+  const blob = new Blob([srt], { type: 'application/x-subrip' });
+  Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: `avacam-${Date.now()}.${post.captions.language}.srt` }).click();
+};
+
 $('exportBtn').onclick = () => {
   setPlaying(false);
   $('expOv').classList.add('on');
@@ -673,6 +753,7 @@ $('expGo').onclick = async () => {
   state.exporting = true;
 
   renderScene(octx, W, H, post.tracks, frameAt(post.trimS), post.trimS, state.entry, state.bg);
+  drawCaptionAt(octx, W, H, post.trimS);
   rec.start(500);
   // The audio clock keeps sound and picture in step; the wall clock (a little behind) takes over
   // if the audio clock stalls (suspended context, no output device), so export always finishes.
@@ -686,6 +767,7 @@ $('expGo').onclick = async () => {
       const el = clock() - t0;
       const t = post.trimS + Math.min(el, dur);
       renderScene(octx, W, H, post.tracks, frameAt(t), t, state.entry, state.bg);
+      drawCaptionAt(octx, W, H, t);
       $('expBar').style.width = Math.min(100, (el / dur) * 100) + '%';
       if (el >= dur) return resolve();
       // A timer, not requestAnimationFrame: export keeps going if the page loses focus.

@@ -3,14 +3,14 @@
 //  - CDN libraries and models (pinned versions): cache first, they never change at a given URL.
 // Bump VERSION on a deploy that changes the file list below. (Fighter models aren't listed: they
 // are cached the first time each one is picked, so installing doesn't download all of them.)
-const VERSION = 'avacam-v6';
+const VERSION = 'avacam-v7';
 const APP_CACHE = `${VERSION}-app`;
 const CDN_CACHE = `${VERSION}-cdn`;
 
 const APP_FILES = [
   './', 'index.html', 'manifest.webmanifest',
   'icons/icon-192.png', 'icons/icon-512.png', 'icons/maskable-512.png', 'icons/apple-touch-icon.png', 'icons/favicon-32.png',
-  'js/app.js', 'js/performance.js', 'js/blurb-render.js', 'js/blurb3d.js', 'js/toys3d.js', 'js/voice-fx.js', 'js/voice-worker.js', 'js/bda.js',
+  'js/app.js', 'js/performance.js', 'js/blurb-render.js', 'js/blurb3d.js', 'js/toys3d.js', 'js/voice-fx.js', 'js/voice-worker.js', 'js/bda.js', 'js/captions.js', 'js/caption-worker.js',
   'blurb/cmu-dictionary.js', 'blurb/lipsync.js', 'blurb/motion.js', 'blurb/face-sync.js', 'blurb/rig.js', 'blurb/svg-path.js', 'blurb/character-kit.js',
   'lab/', 'lab/index.html', 'lab/lab.css', 'lab/lab.js', 'lab/bases.js', 'lab/blocks.js', 'lab/meshkit.js', 'lab/rig.js',
 ];

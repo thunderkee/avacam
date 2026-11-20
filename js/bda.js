@@ -9,8 +9,8 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 export const BDA_CAST = [
   { id: 'bda-angel', file: 'models/bda-angel.glb', name: 'Seraph', bg: '#CFDDF7', shot: 'body' },
   { id: 'bda-trueleo', file: 'models/bda-trueleo.glb', name: 'True Leo King', bg: '#F1DDB0', shot: 'body' },
-  { id: 'bda-rex', file: 'models/bda-rex.glb', name: 'Rex Saur', bg: '#CFE6EE' },
-  { id: 'bda-ember', file: 'models/bda-ember.glb', name: 'Blossom', bg: '#FFD9C8' },
+  { id: 'bda-rex', file: 'models/bda-rex.glb', name: 'Rex Saur', bg: '#CFE6EE', shot: 'body' },
+  { id: 'bda-ember', file: 'models/bda-ember.glb', name: 'Blossom', bg: '#FFD9C8', shot: 'body' },
 ].map((e) => {
   let rig = null, ready = null;
   return {
@@ -25,6 +25,7 @@ const HEAD_SIZE = 1.9;  // match the other 3D characters' heads (about 2 units t
 const HEAD_Y = 0.15;    // where their head centres sit
 // Body shot (shot: 'body'): the whole fighter in frame, head to feet, with a little room above.
 const BODY_H = 3.4, BODY_TOP = 1.6, BODY_W = 3.0; // (the frame is about 2.7 wide: wide wings may crop a little)
+const CAM_Z = 9.5; // ToyStage's camera distance
 
 function emptyRig() {
   const root = new THREE.Group(), body = new THREE.Group();
@@ -60,9 +61,15 @@ async function load({ file, shot }, rig) {
   if (shot === 'body') {
     const box = new THREE.Box3().setFromObject(model);
     const size = box.getSize(new THREE.Vector3()), centre = box.getCenter(new THREE.Vector3());
-    const k = Math.min(BODY_H / size.y, BODY_W / size.x);
+    // Deep fighters (Rex's head and tail) reach toward the camera, and near parts look bigger:
+    // shrink until the nearest part fits too (the camera sits CAM_Z in front).
+    const k0 = Math.min(BODY_H / size.y, BODY_W / size.x);
+    let k = k0;
+    for (let i = 0; i < 8; i++) k = k0 * Math.max(0.3, (CAM_Z - Math.max(0, size.z * k / 2 - 1.2)) / CAM_Z);
     orient.scale.setScalar(k);
-    orient.position.set(centre.x * k, BODY_TOP - box.max.y * k, centre.z * k);
+    // (the top is placed so that, seen from the camera, even its nearest edge sits at BODY_TOP)
+    const near = (CAM_Z - size.z * k / 2) / CAM_Z;
+    orient.position.set(centre.x * k, -0.35 + (BODY_TOP + 0.35) * near - box.max.y * k, centre.z * k);
   } else {
     const headBox = new THREE.Box3().setFromObject(head || model);
     const size = headBox.getSize(new THREE.Vector3());

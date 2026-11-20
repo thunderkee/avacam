@@ -291,18 +291,21 @@ export class ToyStage {
         const bl = pick(p.blinkL, p.blinkR), up = pick(p.browL, p.browR), tilt = pick(p.browTiltL, p.browTiltR);
         const shut = bl > 0.5;
         e.visible = !shut; e.userData.lid.visible = shut;
-        // Expression: brows up open the eyes wide, a smile or a half blink narrows them, and the
-        // brows' tilt tilts the eyes (angry, worried).
+        // Expression: raised brows open the eyes wide and lift them; a smile or laugh squeezes them
+        // into a happy squint pushed up by the cheeks; a frown narrows and lowers them; a half blink
+        // narrows them; the brows' tilt tilts them hard (angry, worried).
         const s0 = (e.userData.s0 ??= e.scale.clone()); e.userData.rz0 ??= e.rotation.z;
-        const open = Math.min(1.5, Math.max(0.4, 1 + up * 0.45 - p.smile * 0.35 - p.frown * 0.15 - bl * 0.6));
-        e.scale.set(s0.x * (1 + up * 0.12), s0.y * open, s0.z);
-        e.rotation.z = e.userData.rz0 + fb * Math.max(-28, Math.min(28, tilt * 1.4)) * D2R;
+        const lift = Math.max(0, up), drop = Math.max(0, -up), h = e.userData.h || 0;
+        const open = Math.min(1.9, Math.max(0.3, 1 + lift * 0.8 - drop * 0.3 - p.smile * 0.55 - (p.laugh || 0) * 0.6 - p.frown * 0.25 - bl * 0.7));
+        e.scale.set(s0.x * (1 + lift * 0.25 + p.smile * 0.08), s0.y * open, s0.z);
+        e.rotation.z = e.userData.rz0 + fb * Math.max(-38, Math.min(38, tilt * 2.2)) * D2R;
+        e.userData.lift = h * (lift * 0.3 + p.smile * 0.2 - drop * 0.15 - p.frown * 0.12);
       } else e.scale.y = Math.max(0.08, 1 - blink);
       // Googly / doll eyes move the iris (userData.pupil); bead eyes move the whole eye.
       const look = e.userData.pupil || e, travel = e.userData.travel || 0.05;
       look.userData.x0 ??= look.position.x; look.userData.y0 ??= look.position.y;
       look.position.x = look.userData.x0 + p.gazeX * travel;
-      look.position.y = look.userData.y0 - p.gazeY * travel * 0.8;
+      look.position.y = look.userData.y0 - p.gazeY * travel * 0.8 + (look.userData.lift || 0);
     });
     r.brows.forEach((b, i) => {
       b.userData.y0 ??= b.position.y; b.userData.r0 ??= b.rotation.z;

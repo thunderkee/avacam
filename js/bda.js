@@ -140,10 +140,11 @@ async function load({ file, shot = 'upper' }, rig) {
   // Closed eyes: a dark lid line over each eye, shown while blinking (squashing these eyes barely shows).
   const lidMat = new THREE.MeshStandardMaterial({ color: '#1b1b24', roughness: 0.6 });
   rig.eyes = eyes.map((e) => {
-    e.userData.travel = 0.012;
+    e.userData.travel = 0.02;
     e.geometry.computeBoundingBox();
     const box = e.geometry.boundingBox.clone().applyMatrix4(e.matrix); // in the eye's parent space
     const size = box.getSize(new THREE.Vector3()), c = box.getCenter(new THREE.Vector3());
+    e.userData.h = size.y; // (expressions lift and lower the eye by a share of its height)
     const lid = new THREE.Mesh(new THREE.BoxGeometry(size.x * 1.08, Math.max(size.y * 0.24, size.x * 0.14), Math.max(size.z * 0.5, 0.01)), lidMat);
     lid.position.set(c.x, c.y - size.y * 0.08, box.min.z - 0.004); // just in front (the fighters face -z)
     lid.visible = false;

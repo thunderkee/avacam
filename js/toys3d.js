@@ -258,6 +258,9 @@ export class ToyStage {
     const range = (v, { amp, min, max }) => Math.min(max, Math.max(min, 1 + (v - 1) * amp));
     const nb = p.nearBody ?? 1, nh = p.nearHead ?? nb;
     r.root.scale.setScalar(range(nb, NEAR.body));
+    // A locked body (the bdafighter fighters) stays put: no turn, tilt, sway, drift or lean-in.
+    // Only the head and face move.
+    if (r.bodyStill) { r.body.rotation.set(0, 0, 0); r.body.scale.setScalar(1); r.root.position.set(0, 0, 0); r.root.scale.setScalar(1); }
     const hd = r.head.userData;
     hd.p0 ??= r.head.position.clone();
     hd.s0 ??= r.head.scale.x; // a head built at its own size keeps it
@@ -282,8 +285,18 @@ export class ToyStage {
       const blink = i === 0 ? p.blinkL : p.blinkR;
       if (e.userData.lid) {
         // Eyes with a lid (the bdafighter fighters): swap to the closed-eye line while blinking.
-        const shut = blink > 0.5;
+        // Their side (screen left/right) is measured at load; an eye in the middle takes both.
+        const side = e.userData.side ?? (i === 0 ? -1 : 1);
+        const pick = (l, rr) => (side < 0 ? l : side > 0 ? rr : (l + rr) / 2);
+        const bl = pick(p.blinkL, p.blinkR), up = pick(p.browL, p.browR), tilt = pick(p.browTiltL, p.browTiltR);
+        const shut = bl > 0.5;
         e.visible = !shut; e.userData.lid.visible = shut;
+        // Expression: brows up open the eyes wide, a smile or a half blink narrows them, and the
+        // brows' tilt tilts the eyes (angry, worried).
+        const s0 = (e.userData.s0 ??= e.scale.clone()); e.userData.rz0 ??= e.rotation.z;
+        const open = Math.min(1.5, Math.max(0.4, 1 + up * 0.45 - p.smile * 0.35 - p.frown * 0.15 - bl * 0.6));
+        e.scale.set(s0.x * (1 + up * 0.12), s0.y * open, s0.z);
+        e.rotation.z = e.userData.rz0 + fb * Math.max(-28, Math.min(28, tilt * 1.4)) * D2R;
       } else e.scale.y = Math.max(0.08, 1 - blink);
       // Googly / doll eyes move the iris (userData.pupil); bead eyes move the whole eye.
       const look = e.userData.pupil || e, travel = e.userData.travel || 0.05;

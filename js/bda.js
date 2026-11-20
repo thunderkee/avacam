@@ -37,6 +37,8 @@ const HEAD_SIZE = 1.9;  // match the other 3D characters' heads (about 2 units t
 const HEAD_Y = 0.15;    // where their head centres sit
 // Body shot (shot: 'body'): the whole fighter in frame, head to feet, with a little room above.
 const BODY_H = 3.4, BODY_TOP = 1.6, BODY_W = 3.0; // (the frame is about 2.7 wide: wide wings may crop a little)
+// Upper shot (the default, shot: 'upper'): head and shoulders, like the other characters.
+const UPPER_H = 2.3, UPPER_TOP = 1.5, UPPER_W = 8; // (arms and wings may crop at the sides)
 const CAM_Z = 9.5; // ToyStage's camera distance
 
 function emptyRig() {
@@ -46,11 +48,12 @@ function emptyRig() {
   const head = new THREE.Group();
   body.add(head);
   // faceBack: the fighters face -z, so they're turned round (nod and tilt flip with it);
-  // headStill: the head stays on its turret (no drift of its own).
-  return { root, head, body, eyes: [], brows: [], ears: [], mouth: null, extra: {}, faceBack: true, headStill: true };
+  // headStill: the head stays on its turret (no drift of its own); bodyStill: the body is locked,
+  // only the head and face move.
+  return { root, head, body, eyes: [], brows: [], ears: [], mouth: null, extra: {}, faceBack: true, headStill: true, bodyStill: true };
 }
 
-async function load({ file, shot = 'body' }, rig) {
+async function load({ file, shot = 'upper' }, rig) {
   const gltf = await loader.loadAsync(file);
   const model = gltf.scene;
   const orient = new THREE.Group();
@@ -68,23 +71,33 @@ async function load({ file, shot = 'body' }, rig) {
     if (o.isMesh) o.frustumCulled = false;
   });
 
-  // Size and place: the head as big as the other characters' heads, centred where theirs are.
-  // Or, for a body shot, the whole fighter fitted head to feet.
-  if (shot === 'body') {
+  // Size and place: a band of the fighter fitted to the frame. Upper shot: from the top of the head
+  // down past the shoulders. Body shot: head to feet. (Head shot: the head alone, below.)
+  if (shot === 'body' || shot === 'upper') {
     const box = new THREE.Box3().setFromObject(model);
     const size = box.getSize(new THREE.Vector3()), centre = box.getCenter(new THREE.Vector3());
+    let top = box.max.y, bottom = box.min.y, H = BODY_H, TOP = BODY_TOP, W = BODY_W;
+    if (shot === 'upper') {
+      const hb = head ? new THREE.Box3().setFromObject(head) : null;
+      top = hb ? hb.max.y : box.max.y; // (a spear or antenna above the head may crop)
+      // (the game's head groups often take in the collar too, so the chest is measured from the top)
+      bottom = Math.max(box.min.y, top - Math.max(size.y * 0.42, hb ? Math.min((hb.max.y - hb.min.y) * 1.2, size.y * 0.6) : 0));
+      H = UPPER_H; TOP = UPPER_TOP; W = UPPER_W;
+    }
+    const bandH = top - bottom;
     // Deep fighters (Rex's head and tail) reach toward the camera, and near parts look bigger:
     // shrink until the nearest part fits too (the camera sits CAM_Z in front).
-    const k0 = Math.min(BODY_H / size.y, BODY_W / size.x);
+    const k0 = Math.min(H / bandH, W / size.x);
     let k = k0;
-    for (let i = 0; i < 8; i++) k = k0 * Math.max(0.3, (CAM_Z - Math.max(0, size.z * k / 2 - 1.2)) / CAM_Z);
+    const slack = shot === 'upper' ? 3 : 1.2; // (close up, a nearer head may loom a little more)
+    for (let i = 0; i < 8; i++) k = k0 * Math.max(0.3, (CAM_Z - Math.max(0, size.z * k / 2 - slack)) / CAM_Z);
     orient.scale.setScalar(k);
-    // (the top is placed so that, seen from the camera, even its nearest edge sits at BODY_TOP)
+    // (the top is placed so that, seen from the camera, even its nearest edge sits at TOP)
     const near = (CAM_Z - size.z * k / 2) / CAM_Z;
     // Wide, short fighters (Mandrill, the Baron's plane) are fitted by width: centre them in the
     // body's band instead of hanging them from the top.
-    const drop = Math.max(0, BODY_H - size.y * k) / 2;
-    orient.position.set(centre.x * k, -0.35 + (BODY_TOP - drop + 0.35) * near - box.max.y * k, centre.z * k);
+    const drop = Math.max(0, H - bandH * k) / 2;
+    orient.position.set(centre.x * k, -0.35 + (TOP - drop + 0.35) * near - top * k, centre.z * k);
   } else {
     const headBox = new THREE.Box3().setFromObject(head || model);
     const size = headBox.getSize(new THREE.Vector3());
@@ -109,6 +122,20 @@ async function load({ file, shot = 'body' }, rig) {
     pivot.add(head);
     rig.body.remove(rig.head);
     rig.head = pivot;
+  }
+  // Each eye turns and scales about its own middle (some are built off-centre in their geometry,
+  // sometimes shared), and knows its side of the screen for left/right blinks and brows.
+  rig.root.updateMatrixWorld(true);
+  for (const e of eyes) {
+    e.geometry = e.geometry.clone();
+    e.geometry.computeBoundingBox();
+    const c = e.geometry.boundingBox.getCenter(new THREE.Vector3());
+    const shift = c.clone().applyMatrix4(e.matrix).sub(e.position);
+    e.geometry.translate(-c.x, -c.y, -c.z);
+    e.position.add(shift);
+    e.updateMatrixWorld(true);
+    const x = new THREE.Vector3().setFromMatrixPosition(e.matrixWorld).x;
+    e.userData.side = Math.abs(x) < 0.03 ? 0 : Math.sign(x);
   }
   // Closed eyes: a dark lid line over each eye, shown while blinking (squashing these eyes barely shows).
   const lidMat = new THREE.MeshStandardMaterial({ color: '#1b1b24', roughness: 0.6 });

@@ -434,7 +434,7 @@ const post = { audioEl: null, playing: false, clockT0: 0, clockPos: 0, smooth: 0
 
 function openPost(proj) {
   state.proj = proj;
-  post.trimS = 0; post.trimE = proj.duration; post.clockPos = 0; post.buffer = null; post.fxBuffer = null; post.fxJob++;
+  post.trimS = 0; post.trimE = proj.duration; post.clockPos = 0; post.buffer = null; post.fxBuffer = null; post.fxJob++; $('fxOv').classList.remove('on');
   $('trimStart').value = 0; $('trimEnd').value = 1000;
   post.audioEl?.pause();
   post.audioEl = null;
@@ -455,7 +455,7 @@ function openPost(proj) {
 // The recorded voice re-processed (pitch, robot, echo…); timing is kept, so lip sync still matches.
 
 function buildVoicePanel() {
-  const el = $('voiceChips'); el.innerHTML = '';
+  const el = $('voiceChips'), scroll = el.scrollLeft; el.innerHTML = '';
   for (const v of VOICE_PRESETS) {
     const b = document.createElement('button');
     b.className = 'vchip' + (v.id === post.voice ? ' sel' : '');
@@ -463,24 +463,26 @@ function buildVoicePanel() {
     b.onclick = () => { post.voice = v.id; buildVoicePanel(); applyVoiceFx(); };
     el.append(b);
   }
+  el.scrollLeft = scroll; // (the row keeps its place when a chip is picked)
   $('semis').value = post.semis; $('semiVal').textContent = (post.semis > 0 ? '+' : '') + post.semis;
   const has = !!state.proj?.audio;
   $('semis').disabled = !has;
   el.querySelectorAll('button').forEach((b) => { b.disabled = !has; });
   $('voiceStatus').textContent = has ? '' : 'No sound was recorded for this take (allow the microphone to use voice effects).';
 }
-let semiTimer = 0;
-$('semis').oninput = (e) => {
-  post.semis = +e.target.value; $('semiVal').textContent = (post.semis > 0 ? '+' : '') + post.semis;
-  clearTimeout(semiTimer); semiTimer = setTimeout(applyVoiceFx, 250);
-};
+// The label follows the slider; the voice is applied when it's let go.
+$('semis').oninput = (e) => { post.semis = +e.target.value; $('semiVal').textContent = (post.semis > 0 ? '+' : '') + post.semis; };
+$('semis').onchange = () => applyVoiceFx();
 
+// While a voice is applied, playback pauses behind a "Applying voice…" overlay and resumes after.
 async function applyVoiceFx() {
   if (!state.proj?.audio) return;
   const job = ++post.fxJob;
   if (!post.buffer) { $('voiceStatus').textContent = 'Loading sound…'; return; } // runs again once decoded
-  $('voiceStatus').textContent = 'Applying…';
-  await new Promise((r) => setTimeout(r, 20)); // let the label paint
+  if (!$('fxOv').classList.contains('on')) { post.fxResume = post.playing; setPlaying(false); $('fxOv').classList.add('on'); }
+  const done = () => { if (job !== post.fxJob) return; $('fxOv').classList.remove('on'); if (post.fxResume) setPlaying(true); };
+  $('voiceStatus').textContent = '';
+  await new Promise((r) => setTimeout(r, 50)); // let the overlay paint
   const fx = await applyVoice(post.buffer, { preset: post.voice, semitones: post.semis });
   if (job !== post.fxJob) return; // a newer choice took over
   const fxBuffer = fx === post.buffer ? null : fx;
@@ -497,9 +499,10 @@ async function applyVoiceFx() {
     const old = post.audioEl, t = currentTime();
     el.currentTime = t;
     post.audioEl = el;
-    if (post.playing) el.play().catch(() => {});
     if (old) { old.pause(); URL.revokeObjectURL(old.src); old.removeAttribute('src'); old.load(); }
+    done();
   }, { once: true });
+  el.addEventListener('error', done, { once: true });
   const p = VOICE_PRESETS.find((v) => v.id === post.voice);
   $('voiceStatus').textContent = post.fxBuffer ? `${p.label}${post.semis ? ` ${post.semis > 0 ? '+' : ''}${post.semis} st` : ''} applied` : '';
 }
@@ -583,21 +586,70 @@ $('bgFile').onchange = async (e) => {
 };
 
 // --------------------------------------------------------------------- export
-// Renders 1080×1920 frames from the motion data and records them with the trimmed
-// audio in real time (MP4 where the browser can, WebM otherwise).
+// Renders frames from the motion data and records them with the trimmed audio in real time.
+// Before it starts, the export sheet picks the format, frame size and compression (remembered).
 
 let exportJob = null;
-const videoMime = () => ['video/mp4;codecs=avc1.42E01F,mp4a.40.2', 'video/mp4', 'video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm']
-  .find((m) => MediaRecorder.isTypeSupported?.(m)) || '';
+const FORMATS = [
+  { id: 'mp4', label: 'MP4', mimes: ['video/mp4;codecs=avc1.42E01F,mp4a.40.2', 'video/mp4;codecs=avc1,mp4a', 'video/mp4'] },
+  { id: 'webm', label: 'WebM', mimes: ['video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm'] },
+].map((f) => ({ ...f, mime: f.mimes.find((m) => window.MediaRecorder?.isTypeSupported?.(m)) || '' }));
+const SIZES = [
+  { id: '1080p', label: '1080×1920', note: '9:16', w: 1080, h: 1920 },
+  { id: '720p', label: '720×1280', note: '9:16', w: 720, h: 1280 },
+  { id: 'square', label: '1080×1080', note: '1:1', w: 1080, h: 1080 },
+  { id: 'wide', label: '1920×1080', note: '16:9', w: 1920, h: 1080 },
+];
+// Bits per pixel per frame: the video bitrate scales with the frame size.
+const QUALITIES = [
+  { id: 'high', label: 'High quality', bpp: 0.15 },
+  { id: 'medium', label: 'Balanced', bpp: 0.08 },
+  { id: 'low', label: 'Small file', bpp: 0.035 },
+];
+const expPrefs = (() => { try { return JSON.parse(localStorage.getItem('avacam-export')) || {}; } catch { return {}; } })();
+expPrefs.format = FORMATS.find((f) => f.id === expPrefs.format && f.mime) ? expPrefs.format : (FORMATS.find((f) => f.mime)?.id || 'webm');
+expPrefs.size ||= '1080p'; expPrefs.quality ||= 'medium';
+const pick = (list, id) => list.find((x) => x.id === id) || list[0];
+const bitrate = () => { const z = pick(SIZES, expPrefs.size); return Math.round(z.w * z.h * FPS * pick(QUALITIES, expPrefs.quality).bpp); };
 
-$('exportBtn').onclick = async () => {
+function buildExportOpts() {
+  const chips = (el, list, key, extra = () => '') => {
+    el.innerHTML = '';
+    for (const o of list) {
+      const b = document.createElement('button');
+      b.className = 'vchip' + (expPrefs[key] === o.id ? ' sel' : '');
+      b.innerHTML = o.label + extra(o);
+      if (key === 'format' && !o.mime) { b.disabled = true; b.title = 'Not supported by this browser'; }
+      b.onclick = () => { expPrefs[key] = o.id; try { localStorage.setItem('avacam-export', JSON.stringify(expPrefs)); } catch {} buildExportOpts(); };
+      el.append(b);
+    }
+  };
+  chips($('optFormat'), FORMATS, 'format');
+  chips($('optSize'), SIZES, 'size', (o) => `<small>${o.note}</small>`);
+  chips($('optQuality'), QUALITIES, 'quality');
+  const mbMin = (bitrate() + (state.proj?.audio ? 128_000 : 0)) * 60 / 8 / 1e6;
+  const dur = post.trimE - post.trimS;
+  $('expMsg').textContent = `About ${(mbMin * dur / 60).toFixed(1)} MB for ${dur.toFixed(1)} s (${(bitrate() / 1e6).toFixed(1)} Mbps)`;
+}
+
+$('exportBtn').onclick = () => {
   setPlaying(false);
-  const ov = $('expOv'); ov.classList.add('on');
-  $('expTitle').textContent = 'Exporting…'; $('expMsg').textContent = 'Rendering 1080×1920';
-  $('expShare').hidden = true; $('expCancel').textContent = 'Cancel'; $('expBar').style.width = '0';
+  $('expOv').classList.add('on');
+  $('expTitle').textContent = 'Export';
+  $('expOpts').hidden = false; $('expGo').hidden = false; $('expBarWrap').hidden = true;
+  $('expShare').hidden = true; $('expCancel').textContent = 'Cancel';
+  buildExportOpts();
+};
+
+$('expGo').onclick = async () => {
+  const ov = $('expOv');
+  const size = pick(SIZES, expPrefs.size), fmt = pick(FORMATS, expPrefs.format);
+  $('expOpts').hidden = true; $('expGo').hidden = true; $('expBarWrap').hidden = false;
+  $('expTitle').textContent = 'Exporting…'; $('expMsg').textContent = `Rendering ${size.w}×${size.h}`;
+  $('expBar').style.width = '0';
   if (state.entry.kind === 'blurb') await charFor(state.entry).load();
 
-  const W = 1080, H = 1920;
+  const W = size.w, H = size.h;
   const out = Object.assign(document.createElement('canvas'), { width: W, height: H });
   const octx = out.getContext('2d');
   const dur = post.trimE - post.trimS;
@@ -614,8 +666,8 @@ $('exportBtn').onclick = async () => {
     src = actx.createBufferSource(); src.buffer = post.fxBuffer || post.buffer; src.connect(dest);
     tracks.push(...dest.stream.getAudioTracks());
   }
-  const mime = videoMime();
-  const rec = new MediaRecorder(new MediaStream(tracks), { ...(mime ? { mimeType: mime } : {}), videoBitsPerSecond: 8_000_000 });
+  const mime = fmt.mime;
+  const rec = new MediaRecorder(new MediaStream(tracks), { ...(mime ? { mimeType: mime } : {}), videoBitsPerSecond: bitrate(), audioBitsPerSecond: 128_000 });
   const chunks = []; rec.ondataavailable = (e) => e.data.size && chunks.push(e.data);
   const job = (exportJob = { cancelled: false });
   state.exporting = true;
@@ -652,7 +704,7 @@ $('exportBtn').onclick = async () => {
   const blob = new Blob(chunks, { type });
   const file = new File([blob], `avacam-${state.entry.id}-${Date.now()}.${ext}`, { type });
   $('expTitle').textContent = 'Ready';
-  $('expMsg').textContent = `${ext.toUpperCase()} · ${(blob.size / 1e6).toFixed(1)} MB · ${dur.toFixed(1)} s`;
+  $('expMsg').textContent = `${ext.toUpperCase()} · ${W}×${H} · ${(blob.size / 1e6).toFixed(1)} MB · ${dur.toFixed(1)} s`;
   $('expShare').hidden = false; $('expCancel').textContent = 'Close';
   $('expShare').onclick = async () => {
     if (navigator.canShare?.({ files: [file] })) {

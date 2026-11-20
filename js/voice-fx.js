@@ -9,10 +9,18 @@ export const VOICE_PRESETS = [
   { id: 'chipmunk', label: 'Chipmunk', icon: '🐿️', pitch: 7 },
   { id: 'deep', label: 'Deep', icon: '🐻', pitch: -5 },
   { id: 'robot', label: 'Robot', icon: '🤖' },
-  { id: 'alien', label: 'Alien', icon: '👽', pitch: 4, vibrato: true },
+  { id: 'alien', label: 'Alien', icon: '👽', pitch: 4, vibrato: { rate: 6, depth: 0.6 } },
   { id: 'monster', label: 'Monster', icon: '👹', pitch: -9 },
   { id: 'radio', label: 'Radio', icon: '📻' },
   { id: 'echo', label: 'Echo', icon: '⛰️' },
+  { id: 'helium', label: 'Helium', icon: '🎈', pitch: 12 },
+  { id: 'giant', label: 'Giant', icon: '🗿', pitch: -12, reverb: 1.8 },
+  { id: 'villain', label: 'Villain', icon: '🦹', pitch: -6, reverb: 0.9 },
+  { id: 'ghost', label: 'Ghost', icon: '👻', pitch: -2, vibrato: { rate: 1.5, depth: 0.5 }, reverb: 3 },
+  { id: 'underwater', label: 'Underwater', icon: '🐠', vibrato: { rate: 3, depth: 0.8 } },
+  { id: 'megaphone', label: 'Megaphone', icon: '📢' },
+  { id: 'cave', label: 'Cave', icon: '🦇', reverb: 3.5 },
+  { id: 'choir', label: 'Choir', icon: '🎶', layers: [0, 12, -12], reverb: 1.5 },
 ];
 
 let decodeCtx = null;
@@ -56,8 +64,15 @@ export function pitchShift(x, sr, ratio) {
   return out;
 }
 
-/** The Alien's wobble: `base` with a 6 Hz vibrato of ±0.6 semitones. */
-export const vibrato = (base) => (t) => base * 2 ** ((Math.sin(t * 2 * Math.PI * 6) * 0.6) / 12);
+/** A wobble: `base` with a vibrato of `rate` Hz and ±`depth` semitones. */
+export const vibrato = (base, { rate = 6, depth = 0.6 } = {}) => (t) => base * 2 ** ((Math.sin(t * 2 * Math.PI * rate) * depth) / 12);
+
+/** A room: decaying stereo-free noise as a convolution impulse, `secs` long. */
+function impulse(ctx, secs) {
+  const n = Math.round(ctx.sampleRate * secs), b = ctx.createBuffer(1, n, ctx.sampleRate), d = b.getChannelData(0);
+  for (let i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / n) ** 3;
+  return b;
+}
 
 // The heavy loops (pitch shift, WAV encoding) run in a worker, so the player and character keep
 // moving while a voice is applied (on a phone they took about a second for a long take).
@@ -88,6 +103,13 @@ function chain(ctx, preset, src, out) {
   const shaper = (amount) => { const w = ctx.createWaveShaper(); w.curve = driveCurve(amount); w.oversample = '2x'; return w; };
   const gain = (v) => { const g = ctx.createGain(); g.gain.value = v; return g; };
 
+  // A reverb tail (giant, villain, ghost, cave, choir): the dry voice plus the room.
+  if (preset.reverb) {
+    const room = ctx.createConvolver(); room.buffer = impulse(ctx, preset.reverb);
+    const into = gain(1);
+    into.connect(out); into.connect(room); room.connect(gain(preset.id === 'cave' ? 0.6 : 0.35)).connect(out);
+    out = into;
+  }
   switch (preset.id) {
     case 'robot': {
       // Ring modulation (the classic robot buzz) into a short metallic comb.
@@ -122,6 +144,30 @@ function chain(ctx, preset, src, out) {
       src.connect(filter('lowshelf', 220, 0.7, 4)).connect(out);
       break;
     }
+    case 'helium': {
+      src.connect(filter('highpass', 250)).connect(filter('highshelf', 3500, 0.7, 3)).connect(out);
+      break;
+    }
+    case 'giant': {
+      src.connect(filter('lowshelf', 160, 0.7, 6)).connect(filter('lowpass', 3500)).connect(out);
+      break;
+    }
+    case 'villain': {
+      src.connect(filter('lowshelf', 180, 0.7, 5)).connect(shaper(2.5)).connect(filter('lowpass', 4000)).connect(gain(0.85)).connect(out);
+      break;
+    }
+    case 'ghost': {
+      src.connect(filter('highpass', 300)).connect(filter('lowpass', 2500)).connect(gain(0.9)).connect(out);
+      break;
+    }
+    case 'underwater': {
+      src.connect(filter('lowpass', 550, 1.4)).connect(filter('peaking', 300, 1, 5)).connect(out);
+      break;
+    }
+    case 'megaphone': {
+      src.connect(filter('highpass', 700, 1)).connect(filter('lowpass', 2800, 1)).connect(filter('peaking', 1500, 1.5, 8)).connect(shaper(7)).connect(gain(0.7)).connect(out);
+      break;
+    }
     case 'chipmunk': case 'alien': {
       src.connect(filter('highshelf', 3000, 0.7, preset.id === 'alien' ? 3 : 2)).connect(out);
       break;
@@ -140,12 +186,24 @@ export async function applyVoice(buffer, { preset = 'none', semitones = 0 } = {}
   if (p.id === 'none' && !semis) return buffer;
   const sr = buffer.sampleRate;
   let x = mono(buffer);
-  if (semis || p.vibrato) {
-    const base = 2 ** (semis / 12), src = x;
-    x = await inWorker({ op: 'pitch', x: src.slice(), sr, base, vibrato: !!p.vibrato }, [],
-      () => pitchShift(src, sr, p.vibrato ? vibrato(base) : base));
+  // Each layer is the voice at another pitch (the Choir sings in octaves); most presets have one.
+  const layers = p.layers || [0];
+  if (semis || p.vibrato || layers.some((l) => l)) {
+    const src = x;
+    const shifted = await Promise.all(layers.map((l) => {
+      const base = 2 ** ((semis + l) / 12);
+      if (base === 1 && !p.vibrato) return src;
+      return inWorker({ op: 'pitch', x: src.slice(), sr, base, vibrato: p.vibrato || null }, [],
+        () => pitchShift(src, sr, p.vibrato ? vibrato(base, p.vibrato) : base));
+    }));
+    if (shifted.length === 1) x = shifted[0];
+    else {
+      x = new Float32Array(src.length);
+      const k = 1 / Math.sqrt(shifted.length);
+      for (const s of shifted) for (let i = 0; i < x.length; i++) x[i] += s[i] * k;
+    }
   }
-  const tail = p.id === 'echo' ? Math.round(sr * 1.2) : 0;
+  const tail = Math.round(sr * (p.id === 'echo' ? 1.2 : p.reverb || 0));
   const ctx = new OfflineAudioContext(1, x.length + tail, sr);
   const inBuf = ctx.createBuffer(1, x.length, sr); inBuf.copyToChannel(x, 0);
   const src = ctx.createBufferSource(); src.buffer = inBuf;

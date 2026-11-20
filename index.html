@@ -89,6 +89,8 @@
 
   /* Voice effects */
   .vchips { display: flex; flex-wrap: wrap; gap: var(--sp-sm); }
+  #voiceChips { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; margin: 0 -4px; padding: 0 4px; }
+  #voiceChips .vchip { flex: none; }
   .vchip { padding: 7px 12px; border-radius: var(--r-pill); border: 1px solid var(--line); font-size: 13px; font-weight: 500;
     background: var(--surface-solid); display: inline-flex; gap: 6px; align-items: center; }
   .vchip.sel { background: var(--text); color: var(--bg); border-color: var(--text); }
@@ -141,6 +143,14 @@
   .btn:disabled { opacity: .5; }
   .bar { height: 6px; border-radius: var(--r-pill); background: var(--line); overflow: hidden; }
   .bar i { display: block; height: 100%; width: 0; background: var(--text); transition: width .1s linear; }
+  .bar.busy i { width: 35%; animation: busy 1.1s ease-in-out infinite; }
+  @keyframes busy { from { transform: translateX(-100%); } to { transform: translateX(290%); } }
+  .expopts { display: flex; flex-direction: column; gap: var(--sp-md); text-align: left; }
+  .expopts[hidden] { display: none; }
+  .expopts b { display: block; font-size: 13px; font-weight: 500; margin-bottom: 6px; }
+  .vchip small { color: var(--muted); margin-left: 4px; }
+  .vchip.sel small { color: inherit; opacity: .7; }
+  .vchip:disabled { opacity: .35; }
   .err { color: var(--warn) !important; }
 
   /* Post panel */
@@ -297,12 +307,27 @@
       </div>
     </div>
 
+    <!-- VOICE PROCESSING -->
+    <div class="overlay" id="fxOv">
+      <div class="card">
+        <h2>Applying voice…</h2>
+        <p id="fxMsg">This takes a moment for a long take.</p>
+        <div class="bar busy"><i></i></div>
+      </div>
+    </div>
+
     <!-- EXPORT -->
     <div class="overlay" id="expOv">
       <div class="card">
         <h2 id="expTitle">Exporting…</h2>
+        <div class="expopts" id="expOpts">
+          <div><b>Format</b><div class="vchips" id="optFormat"></div></div>
+          <div><b>Frame size</b><div class="vchips" id="optSize"></div></div>
+          <div><b>Compression</b><div class="vchips" id="optQuality"></div></div>
+        </div>
         <p id="expMsg">Rendering 1080×1920</p>
-        <div class="bar"><i id="expBar"></i></div>
+        <div class="bar" id="expBarWrap"><i id="expBar"></i></div>
+        <button class="btn" id="expGo" hidden>Export video</button>
         <button class="btn" id="expShare" hidden>Save video</button>
         <button class="btn ghost" id="expCancel">Cancel</button>
       </div>

@@ -5,12 +5,24 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
-// The current (2.2) designs, as the game uses them: angel-22, rex-22, ember-22, and trueleo (one version).
+// The game's current cast (its playable() list, the 2.2 designs), in the game's order.
 export const BDA_CAST = [
-  { id: 'bda-angel', file: 'models/bda-angel.glb', name: 'Seraph', bg: '#CFDDF7', shot: 'body' },
-  { id: 'bda-trueleo', file: 'models/bda-trueleo.glb', name: 'True Leo King', bg: '#F1DDB0', shot: 'body' },
-  { id: 'bda-rex', file: 'models/bda-rex.glb', name: 'Rex Saur', bg: '#CFE6EE', shot: 'body' },
-  { id: 'bda-ember', file: 'models/bda-ember.glb', name: 'Blossom', bg: '#FFD9C8', shot: 'body' },
+  { id: 'bda-angel', file: 'models/bda-angel.glb', name: 'Seraph', bg: '#CFDDF7' },
+  { id: 'bda-dragon', file: 'models/bda-dragon.glb', name: 'Wyvern', bg: '#EFC0C3' },
+  { id: 'bda-pioneer', file: 'models/bda-pioneer.glb', name: 'Pioneer', bg: '#E4DCCB' },
+  { id: 'bda-liberty', file: 'models/bda-liberty.glb', name: 'Liberty', bg: '#C1EBE6' },
+  { id: 'bda-monoceros', file: 'models/bda-monoceros.glb', name: 'Mandrill', bg: '#D0D9EB' },
+  { id: 'bda-baron', file: 'models/bda-baron.glb', name: 'Crimson Baron', bg: '#EFC5C7' },
+  { id: 'bda-bastion', file: 'models/bda-bastion.glb', name: 'Bastion', bg: '#C3D5C7' },
+  { id: 'bda-nightshade', file: 'models/bda-nightshade.glb', name: 'Nightshade', bg: '#C8C3D5' },
+  { id: 'bda-violet', file: 'models/bda-violet.glb', name: 'Silverback', bg: '#CCC4E2' },
+  { id: 'bda-kabuto', file: 'models/bda-kabuto.glb', name: 'Leo King', bg: '#D1C7E3' },
+  { id: 'bda-tyrant', file: 'models/bda-tyrant.glb', name: 'Tyrant King', bg: '#C8CAD0' },
+  { id: 'bda-rex', file: 'models/bda-rex.glb', name: 'Rex Saur', bg: '#CFE6EE' },
+  { id: 'bda-liger', file: 'models/bda-liger.glb', name: 'Fang Hound', bg: '#D9D2C2' },
+  { id: 'bda-ember', file: 'models/bda-ember.glb', name: 'Blossom', bg: '#FFD9C8' },
+  { id: 'bda-rampage', file: 'models/bda-rampage.glb', name: 'Red Bunny', bg: '#F4C2C4' },
+  { id: 'bda-trueleo', file: 'models/bda-trueleo.glb', name: 'True Leo King', bg: '#F1DDB0' },
 ].map((e) => {
   let rig = null, ready = null;
   return {
@@ -38,7 +50,7 @@ function emptyRig() {
   return { root, head, body, eyes: [], brows: [], ears: [], mouth: null, extra: {}, faceBack: true, headStill: true };
 }
 
-async function load({ file, shot }, rig) {
+async function load({ file, shot = 'body' }, rig) {
   const gltf = await loader.loadAsync(file);
   const model = gltf.scene;
   const orient = new THREE.Group();
@@ -69,7 +81,10 @@ async function load({ file, shot }, rig) {
     orient.scale.setScalar(k);
     // (the top is placed so that, seen from the camera, even its nearest edge sits at BODY_TOP)
     const near = (CAM_Z - size.z * k / 2) / CAM_Z;
-    orient.position.set(centre.x * k, -0.35 + (BODY_TOP + 0.35) * near - box.max.y * k, centre.z * k);
+    // Wide, short fighters (Mandrill, the Baron's plane) are fitted by width: centre them in the
+    // body's band instead of hanging them from the top.
+    const drop = Math.max(0, BODY_H - size.y * k) / 2;
+    orient.position.set(centre.x * k, -0.35 + (BODY_TOP - drop + 0.35) * near - box.max.y * k, centre.z * k);
   } else {
     const headBox = new THREE.Box3().setFromObject(head || model);
     const size = headBox.getSize(new THREE.Vector3());

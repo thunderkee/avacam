@@ -37,7 +37,7 @@ function mono(buffer) {
  * for vibrato. Two read taps half a grain apart slide through a delay line; triangular windows
  * crossfade them so the wrap-around of each tap is silent.
  */
-function pitchShift(x, sr, ratio) {
+export function pitchShift(x, sr, ratio) {
   const grain = Math.round(sr * 0.045), half = grain / 2;
   const out = new Float32Array(x.length);
   const at = (pos) => {
@@ -54,6 +54,23 @@ function pitchShift(x, sr, ratio) {
     out[i] = at(i - d) * w1 + at(i - d2) * w2;
   }
   return out;
+}
+
+/** The Alien's wobble: `base` with a 6 Hz vibrato of ±0.6 semitones. */
+export const vibrato = (base) => (t) => base * 2 ** ((Math.sin(t * 2 * Math.PI * 6) * 0.6) / 12);
+
+// The heavy loops (pitch shift, WAV encoding) run in a worker, so the player and character keep
+// moving while a voice is applied (on a phone they took about a second for a long take).
+let worker = null, seq = 0;
+const pending = new Map();
+function inWorker(msg, transfer, fallback) {
+  if (worker === false || typeof Worker === 'undefined') return Promise.resolve(fallback());
+  try {
+    worker ||= new Worker(new URL('./voice-worker.js', import.meta.url), { type: 'module' });
+    worker.onmessage = (e) => { const p = pending.get(e.data.id); pending.delete(e.data.id); p?.resolve(e.data.result); };
+    worker.onerror = () => { worker = false; for (const p of pending.values()) p.resolve(p.fallback()); pending.clear(); };
+  } catch { worker = false; return Promise.resolve(fallback()); }
+  return new Promise((resolve) => { const id = ++seq; pending.set(id, { resolve, fallback }); worker.postMessage({ ...msg, id }, transfer); });
 }
 
 /** Soft-clip curve for drive. */
@@ -124,8 +141,9 @@ export async function applyVoice(buffer, { preset = 'none', semitones = 0 } = {}
   const sr = buffer.sampleRate;
   let x = mono(buffer);
   if (semis || p.vibrato) {
-    const base = 2 ** (semis / 12);
-    x = pitchShift(x, sr, p.vibrato ? (t) => base * 2 ** ((Math.sin(t * 2 * Math.PI * 6) * 0.6) / 12) : base);
+    const base = 2 ** (semis / 12), src = x;
+    x = await inWorker({ op: 'pitch', x: src.slice(), sr, base, vibrato: !!p.vibrato }, [],
+      () => pitchShift(src, sr, p.vibrato ? vibrato(base) : base));
   }
   const tail = p.id === 'echo' ? Math.round(sr * 1.2) : 0;
   const ctx = new OfflineAudioContext(1, x.length + tail, sr);
@@ -141,17 +159,23 @@ export async function applyVoice(buffer, { preset = 'none', semitones = 0 } = {}
   return out;
 }
 
-/** AudioBuffer → 16-bit PCM WAV blob (for the <audio> player). */
-export function toWav(buffer) {
-  const ch = buffer.numberOfChannels, sr = buffer.sampleRate, n = buffer.length;
+/** AudioBuffer → 16-bit PCM WAV blob (for the <audio> player), encoded in the worker. */
+export async function toWav(buffer) {
+  const chans = Array.from({ length: buffer.numberOfChannels }, (_, c) => buffer.getChannelData(c).slice());
+  const bytes = await inWorker({ op: 'wav', chans, sr: buffer.sampleRate }, chans.map((c) => c.buffer), () => encodeWav(chans, buffer.sampleRate));
+  return new Blob([bytes], { type: 'audio/wav' });
+}
+
+/** Channel data → 16-bit PCM WAV bytes. */
+export function encodeWav(chans, sr) {
+  const ch = chans.length, n = chans[0].length;
   const data = new DataView(new ArrayBuffer(44 + n * ch * 2));
   const str = (o, s) => { for (let i = 0; i < s.length; i++) data.setUint8(o + i, s.charCodeAt(i)); };
   str(0, 'RIFF'); data.setUint32(4, 36 + n * ch * 2, true); str(8, 'WAVE'); str(12, 'fmt ');
   data.setUint32(16, 16, true); data.setUint16(20, 1, true); data.setUint16(22, ch, true);
   data.setUint32(24, sr, true); data.setUint32(28, sr * ch * 2, true); data.setUint16(32, ch * 2, true); data.setUint16(34, 16, true);
   str(36, 'data'); data.setUint32(40, n * ch * 2, true);
-  const chans = Array.from({ length: ch }, (_, c) => buffer.getChannelData(c));
   let o = 44;
   for (let i = 0; i < n; i++) for (let c = 0; c < ch; c++) { const v = Math.max(-1, Math.min(1, chans[c][i])); data.setInt16(o, v < 0 ? v * 0x8000 : v * 0x7fff, true); o += 2; }
-  return new Blob([data], { type: 'audio/wav' });
+  return data.buffer;
 }

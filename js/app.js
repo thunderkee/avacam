@@ -434,7 +434,7 @@ const post = { audioEl: null, playing: false, clockT0: 0, clockPos: 0, smooth: 0
 
 function openPost(proj) {
   state.proj = proj;
-  post.trimS = 0; post.trimE = proj.duration; post.clockPos = 0; post.buffer = null; post.fxBuffer = null;
+  post.trimS = 0; post.trimE = proj.duration; post.clockPos = 0; post.buffer = null; post.fxBuffer = null; post.fxJob++;
   $('trimStart').value = 0; $('trimEnd').value = 1000;
   post.audioEl?.pause();
   post.audioEl = null;
@@ -483,14 +483,23 @@ async function applyVoiceFx() {
   await new Promise((r) => setTimeout(r, 20)); // let the label paint
   const fx = await applyVoice(post.buffer, { preset: post.voice, semitones: post.semis });
   if (job !== post.fxJob) return; // a newer choice took over
-  post.fxBuffer = fx === post.buffer ? null : fx;
-  // Swap the player's source, keeping position and play state.
-  const t = currentTime(), wasPlaying = post.playing;
-  post.audioEl?.pause();
-  post.audioEl = new Audio(URL.createObjectURL(post.fxBuffer ? toWav(post.fxBuffer) : state.proj.audio));
-  post.audioEl.preload = 'auto';
-  post.audioEl.onended = () => setPlaying(false);
-  post.audioEl.addEventListener('loadedmetadata', () => { post.audioEl.currentTime = t; if (wasPlaying) post.audioEl.play().catch(() => {}); }, { once: true });
+  const fxBuffer = fx === post.buffer ? null : fx;
+  const blob = fxBuffer ? await toWav(fxBuffer) : state.proj.audio;
+  if (job !== post.fxJob) return;
+  post.fxBuffer = fxBuffer;
+  // Swap the player's source once the new one is ready, keeping position and play state; the
+  // old player (and its sound file) is let go, so repeated changes don't pile up in memory.
+  const el = new Audio(URL.createObjectURL(blob));
+  el.preload = 'auto';
+  el.onended = () => setPlaying(false);
+  el.addEventListener('loadedmetadata', () => {
+    if (job !== post.fxJob) return URL.revokeObjectURL(el.src);
+    const old = post.audioEl, t = currentTime();
+    el.currentTime = t;
+    post.audioEl = el;
+    if (post.playing) el.play().catch(() => {});
+    if (old) { old.pause(); URL.revokeObjectURL(old.src); old.removeAttribute('src'); old.load(); }
+  }, { once: true });
   const p = VOICE_PRESETS.find((v) => v.id === post.voice);
   $('voiceStatus').textContent = post.fxBuffer ? `${p.label}${post.semis ? ` ${post.semis > 0 ? '+' : ''}${post.semis} st` : ''} applied` : '';
 }

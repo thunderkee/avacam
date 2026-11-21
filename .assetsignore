@@ -9,4 +9,3 @@ node_modules
 serve.mjs
 sync-blurb.sh
 README.md
-worker.js

@@ -638,8 +638,8 @@ function buildExportOpts() {
 }
 
 // ------------------------------------------------------------------ captions
-// After each take the original voice (never the voice effect) is sent to AvaCam's Worker, which
-// recognises the speech, English or Indonesian, and times each word; or the words are typed and timed
+// After each take the original voice (never the voice effect) is written down on this device,
+// English or Indonesian found by itself, with each word timed; or the words are typed and timed
 // to the voice. Short timed lines are drawn on the preview, burned into the export, and can be edited.
 
 const drawCaptionAt = (ctx, w, h, t, maxBottom) => { if (post.captions && post.capOn) drawCaption(ctx, w, h, captionAt(post.captions.lines, t), maxBottom); };
@@ -654,7 +654,12 @@ async function autoCaption() {
   const job = ++post.capJob;
   post.capBusy = true; post.capErr = ''; buildCaptionPanel();
   try {
-    const c = await transcribe(post.buffer);
+    const c = await transcribe(post.buffer, (stage, v) => {
+      if (job !== post.capJob) return;
+      $('capStatus').textContent = stage === 'download'
+        ? `Getting the speech model ready, first time only (${Math.round(v * 100)}%)…`
+        : 'Writing captions from your voice, on this phone…';
+    });
     if (job !== post.capJob) return;
     post.captions = { ...c, heard: true };
   } catch (e) {

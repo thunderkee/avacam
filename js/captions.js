@@ -1,18 +1,32 @@
 // Captions:
-//  - after each take, the original (unedited) voice is sent to AvaCam's Worker, which recognises the
-//    speech (English or Indonesian, found by itself) and times every word; the words become short lines;
+//  - after each take, the original (unedited) voice is written down on this device (Whisper, in a
+//    background worker: nothing leaves the phone), English or Indonesian found by itself, with a time
+//    for every word; the words become short lines;
 //  - or the words are typed or pasted, and timed to the voice in the recording.
 // Lines are drawn onto the picture and can be saved as .srt.
 
-/** The recorded voice → { language, lines }. Throws with a readable message if it can't. */
-export async function transcribe(buffer) {
-  const wav = await toWav16k(buffer);
-  let res;
-  try { res = await fetch('/api/captions', { method: 'POST', headers: { 'content-type': 'audio/wav' }, body: wav }); }
-  catch { throw new Error('no connection'); }
-  const out = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(out.error || `server error ${res.status}`);
-  return { language: out.language || 'en', lines: wordsToLines(out.words || []) };
+let worker = null;
+/** The recorded voice → { language, lines }. onProgress(stage, value): 'download' (0–1, first time
+ *  only) or 'listen'. Throws with a readable message if it can't. */
+export async function transcribe(buffer, onProgress = () => {}) {
+  const audio = await to16k(buffer);
+  worker ||= new Worker(new URL('./caption-worker.js', import.meta.url), { type: 'module' });
+  return new Promise((resolve, reject) => {
+    worker.onmessage = ({ data: m }) => {
+      if (m.type === 'progress') onProgress(m.stage, m.value);
+      else if (m.type === 'done') resolve({ language: m.language, lines: wordsToLines(m.words) });
+      else if (m.type === 'error') { worker.terminate(); worker = null; reject(new Error(m.message)); }
+    };
+    worker.onerror = (e) => { worker?.terminate(); worker = null; reject(new Error(e.message || "the speech model couldn't start")); };
+    worker.postMessage({ audio }, [audio.buffer]);
+  });
+}
+
+/** An AudioBuffer → 16 kHz mono samples (what Whisper listens to). */
+async function to16k(buffer) {
+  const sr = 16000, off = new OfflineAudioContext(1, Math.ceil(buffer.duration * sr), sr);
+  const src = off.createBufferSource(); src.buffer = buffer; src.connect(off.destination); src.start();
+  return (await off.startRendering()).getChannelData(0).slice();
 }
 
 /** Timed words → caption lines: break after a sentence, after a comma once a line has a few words,
@@ -27,22 +41,6 @@ export function wordsToLines(words) {
   }
   if (cur) lines.push(cur);
   return lines;
-}
-
-/** An AudioBuffer → 16 kHz mono 16-bit WAV (small enough to send, what the recogniser wants). */
-async function toWav16k(buffer) {
-  const sr = 16000, n = Math.ceil(buffer.duration * sr);
-  const off = new OfflineAudioContext(1, n, sr);
-  const src = off.createBufferSource(); src.buffer = buffer; src.connect(off.destination); src.start();
-  const x = (await off.startRendering()).getChannelData(0);
-  const out = new DataView(new ArrayBuffer(44 + x.length * 2));
-  const str = (o, t) => [...t].forEach((c, i) => out.setUint8(o + i, c.charCodeAt(0)));
-  str(0, 'RIFF'); out.setUint32(4, 36 + x.length * 2, true); str(8, 'WAVEfmt ');
-  out.setUint32(16, 16, true); out.setUint16(20, 1, true); out.setUint16(22, 1, true);
-  out.setUint32(24, sr, true); out.setUint32(28, sr * 2, true); out.setUint16(32, 2, true); out.setUint16(34, 16, true);
-  str(36, 'data'); out.setUint32(40, x.length * 2, true);
-  for (let i = 0; i < x.length; i++) out.setInt16(44 + i * 2, Math.max(-1, Math.min(1, x[i])) * 0x7fff, true);
-  return new Blob([out], { type: 'audio/wav' });
 }
 
 /** Text → short caption lines: break after a sentence, after a comma once a line has a few words,

@@ -1,47 +1,114 @@
-// Captions: the recorded voice → timed subtitle lines in the spoken language (Whisper in
-// caption-worker.js), drawn onto the picture and exportable as .srt.
+// Captions, with no model to download:
+//  - while recording, the browser's own speech recognition (Chrome, Edge, Safari) writes down what's
+//    said, and each phrase is timed by when it was heard;
+//  - or the words are typed or pasted, and timed to the voice in the recording (where it's loud
+//    enough to be speech).
+// Lines are drawn onto the picture and can be saved as .srt.
 
-let worker = null;
+const Recognition = globalThis.SpeechRecognition || globalThis.webkitSpeechRecognition;
+export const canListen = !!Recognition;
 
-/** Transcribe an AudioBuffer. Resolves { language, lines }. onStatus({ stage, value, language }). */
-export async function extractCaptions(buffer, { language = '', onStatus = () => {} } = {}) {
-  // Whisper listens at 16 kHz mono.
-  const n = Math.ceil(buffer.duration * 16000);
-  const off = new OfflineAudioContext(1, n, 16000);
-  const src = off.createBufferSource(); src.buffer = buffer; src.connect(off.destination); src.start();
-  const audio = (await off.startRendering()).getChannelData(0);
-
-  worker ||= new Worker(new URL('./caption-worker.js', import.meta.url), { type: 'module' });
-  return new Promise((resolve, reject) => {
-    worker.onerror = (e) => { worker = null; reject(new Error(e.message || 'Speech model failed to load')); };
-    worker.onmessage = ({ data: m }) => {
-      if (m.type === 'progress') onStatus(m);
-      else if (m.type === 'language') onStatus({ stage: 'language', language: m.language });
-      else if (m.type === 'error') reject(new Error(m.message));
-      else if (m.type === 'done') resolve({ language: m.language, lines: toLines(m.words) });
+/** Listen while recording. clock() gives seconds since the take began. Returns { stop() → Promise<lines> }. */
+export function startListening(lang, clock) {
+  const phrases = []; // { text, start, end }
+  let live = true, rec = null, cur = {};
+  const begin = () => {
+    rec = new Recognition();
+    rec.lang = lang; rec.continuous = true; rec.interimResults = true;
+    rec.onresult = (e) => {
+      const t = clock();
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        const r = e.results[i];
+        // a phrase starts when its first words are heard and ends when it's settled
+        cur[i] ??= { start: Math.max(0, t - 0.4), end: t };
+        cur[i].end = t;
+        if (r.isFinal && !cur[i].done) {
+          cur[i].done = true;
+          const text = r[0].transcript.trim();
+          if (text) phrases.push({ text, start: cur[i].start, end: Math.max(cur[i].start + 0.3, t - 0.3) });
+        }
+      }
     };
-    worker.postMessage({ audio, language }, [audio.buffer]);
-  });
+    // Recognition stops by itself after a silence: start again while still recording.
+    rec.onend = () => { if (live) { cur = {}; try { begin(); } catch {} } };
+    rec.onerror = (e) => { if (e.error === 'not-allowed' || e.error === 'service-not-allowed' || e.error === 'language-not-supported') live = false; };
+    rec.start();
+  };
+  try { begin(); } catch { live = false; }
+  return {
+    stop: () => new Promise((resolve) => {
+      live = false;
+      if (!rec) return resolve([]);
+      const done = () => resolve(phrases.flatMap((p) => spread(splitText(p.text), p.start, p.end)));
+      const timer = setTimeout(done, 1500); // (late final results arrive just after stopping)
+      rec.onend = () => { clearTimeout(timer); done(); };
+      try { rec.stop(); } catch { clearTimeout(timer); done(); }
+    }),
+  };
 }
 
-/** Words → short caption lines: a new line after a sentence ends, after a comma once the line has a
- *  few words, at a pause, or when one gets long. */
-export function toLines(words) {
+/** Text → short caption lines: break after a sentence, after a comma once a line has a few words,
+ *  and before a line gets long. (Scripts without spaces, like Chinese or Japanese, break by length.) */
+export function splitText(text) {
+  const spaced = /\s/.test(text.trim());
+  const parts = spaced ? text.trim().split(/\s+/) : [...text.trim()];
   const lines = [];
-  let cur = null;
-  for (const w of words) {
-    const text = w.text.trim();
-    if (!text) continue;
-    const gap = cur ? w.start - cur.end : 0;
-    const long = cur && (cur.text.length + text.length > 34 || w.end - cur.start > 3.5);
-    if (!cur || cur.done || (cur.comma && cur.text.length >= 14) || gap > 0.6 || long) { cur = { text: '', start: w.start, end: w.end }; lines.push(cur); }
-    // (scripts without spaces, like Chinese and Japanese, come as pieces that join directly)
-    cur.text += (cur.text && /^[\p{L}\p{N}]/u.test(text) && !/[　-鿿]$/u.test(cur.text) ? ' ' : '') + text;
-    cur.end = w.end;
-    cur.done = /[.!?。！？]$/.test(text);
-    cur.comma = /[,，、;:]$/.test(text);
+  let cur = '';
+  for (const w of parts) {
+    if (cur && (cur + w).length > (spaced ? 34 : 16)) { lines.push(cur); cur = ''; }
+    cur += (cur && spaced ? ' ' : '') + w;
+    if (/[.!?。！？]$/.test(w) || (/[,，、;:]$/.test(w) && cur.length >= 14)) { lines.push(cur); cur = ''; }
   }
-  return lines.map(({ text, start, end }) => ({ text, start, end }));
+  if (cur) lines.push(cur);
+  return lines;
+}
+
+/** Lines over [start, end], each given time in proportion to its length. */
+function spread(lines, start, end) {
+  const total = lines.reduce((a, l) => a + l.length, 0) || 1;
+  let t = start;
+  return lines.map((text) => { const d = ((end - start) * text.length) / total; const l = { text, start: t, end: t + d }; t += d; return l; });
+}
+
+/** Where the voice is in an AudioBuffer: [[start, end], …] in seconds. */
+export function speechSpans(buffer) {
+  const x = buffer.getChannelData(0), sr = buffer.sampleRate, hop = Math.round(sr * 0.02);
+  const rms = [];
+  for (let i = 0; i + hop <= x.length; i += hop) { let s = 0; for (let k = i; k < i + hop; k++) s += x[k] * x[k]; rms.push(Math.sqrt(s / hop)); }
+  const sorted = [...rms].sort((a, b) => a - b);
+  const floor = sorted[Math.floor(sorted.length * 0.1)] || 0, loud = sorted[Math.floor(sorted.length * 0.95)] || 0;
+  const th = Math.max(0.008, floor + (loud - floor) * 0.18);
+  const spans = [];
+  rms.forEach((v, i) => {
+    if (v < th) return;
+    const t = i * 0.02, last = spans.at(-1);
+    if (last && t - last[1] < 0.35) last[1] = t + 0.02; else spans.push([t, t + 0.02]);
+  });
+  return spans.filter(([a, b]) => b - a > 0.12);
+}
+
+/** Typed words → lines timed to the voice: the lines are laid along the speaking time only (the
+ *  pauses are skipped), each taking time in proportion to its length, and a line never spans a long
+ *  pause if it can start after it. */
+export function timeToVoice(buffer, text) {
+  const lines = splitText(text);
+  const spans = speechSpans(buffer);
+  if (!lines.length) return [];
+  if (!spans.length) return spread(lines, 0, buffer.duration);
+  const talk = spans.reduce((a, [s, e]) => a + e - s, 0);
+  // speaking-time position → recording time
+  const at = (u) => {
+    for (const [s, e] of spans) { if (u <= e - s + 1e-6) return s + u; u -= e - s; }
+    return spans.at(-1)[1];
+  };
+  const total = lines.reduce((a, l) => a + l.length, 0);
+  let u = 0;
+  return lines.map((text) => {
+    const d = (talk * text.length) / total;
+    const l = { text, start: at(u + 1e-3), end: at(u + d) };
+    u += d;
+    return l;
+  });
 }
 
 /** The line showing at time t (held a moment after it's said, until the next one starts). */

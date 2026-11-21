@@ -21,7 +21,7 @@ export const BDA_CAST = [
   { id: 'bda-tyrant', file: 'models/bda-tyrant.glb', name: 'Tyrant King', bg: '#C8CAD0' },
   { id: 'bda-rex', file: 'models/bda-rex.glb', name: 'Rex Saur', bg: '#CFE6EE', jawClose: 0.4 },
   { id: 'bda-liger', file: 'models/bda-liger.glb', name: 'Fang Hound', bg: '#D9D2C2' },
-  { id: 'bda-ember', file: 'models/bda-ember.glb', name: 'Blossom', bg: '#FFD9C8', jawClose: 0.45 },
+  { id: 'bda-ember', file: 'models/bda-ember.glb', name: 'Blossom', bg: '#FFD9C8', jawClose: 0.2 },
   { id: 'bda-rampage', file: 'models/bda-rampage.glb', name: 'Red Bunny', bg: '#F4C2C4' },
   { id: 'bda-trueleo', file: 'models/bda-trueleo.glb', name: 'True Leo King', bg: '#F1DDB0' },
 ].map((e) => {

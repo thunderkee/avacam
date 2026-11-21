@@ -6,9 +6,10 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
 // The game's current cast (its playable() list, the 2.2 designs), in the game's order.
+// jawClose: how far (radians) to shut a jaw the game builds hanging open, so it rests closed.
 export const BDA_CAST = [
   { id: 'bda-angel', file: 'models/bda-angel.glb', name: 'Seraph', bg: '#CFDDF7' },
-  { id: 'bda-dragon', file: 'models/bda-dragon.glb', name: 'Wyvern', bg: '#EFC0C3' },
+  { id: 'bda-dragon', file: 'models/bda-dragon.glb', name: 'Wyvern', bg: '#EFC0C3', jawClose: 0.25 },
   { id: 'bda-pioneer', file: 'models/bda-pioneer.glb', name: 'Pioneer', bg: '#E4DCCB' },
   { id: 'bda-liberty', file: 'models/bda-liberty.glb', name: 'Liberty', bg: '#C1EBE6' },
   { id: 'bda-monoceros', file: 'models/bda-monoceros.glb', name: 'Mandrill', bg: '#D0D9EB' },
@@ -16,11 +17,11 @@ export const BDA_CAST = [
   { id: 'bda-bastion', file: 'models/bda-bastion.glb', name: 'Bastion', bg: '#C3D5C7' },
   { id: 'bda-nightshade', file: 'models/bda-nightshade.glb', name: 'Nightshade', bg: '#C8C3D5' },
   { id: 'bda-violet', file: 'models/bda-violet.glb', name: 'Silverback', bg: '#CCC4E2' },
-  { id: 'bda-kabuto', file: 'models/bda-kabuto.glb', name: 'Leo King', bg: '#D1C7E3' },
+  { id: 'bda-kabuto', file: 'models/bda-kabuto.glb', name: 'Leo King', bg: '#D1C7E3', jawClose: 0.35 },
   { id: 'bda-tyrant', file: 'models/bda-tyrant.glb', name: 'Tyrant King', bg: '#C8CAD0' },
-  { id: 'bda-rex', file: 'models/bda-rex.glb', name: 'Rex Saur', bg: '#CFE6EE' },
+  { id: 'bda-rex', file: 'models/bda-rex.glb', name: 'Rex Saur', bg: '#CFE6EE', jawClose: 0.4 },
   { id: 'bda-liger', file: 'models/bda-liger.glb', name: 'Fang Hound', bg: '#D9D2C2' },
-  { id: 'bda-ember', file: 'models/bda-ember.glb', name: 'Blossom', bg: '#FFD9C8' },
+  { id: 'bda-ember', file: 'models/bda-ember.glb', name: 'Blossom', bg: '#FFD9C8', jawClose: 0.45 },
   { id: 'bda-rampage', file: 'models/bda-rampage.glb', name: 'Red Bunny', bg: '#F4C2C4' },
   { id: 'bda-trueleo', file: 'models/bda-trueleo.glb', name: 'True Leo King', bg: '#F1DDB0' },
 ].map((e) => {
@@ -53,7 +54,7 @@ function emptyRig() {
   return { root, head, body, eyes: [], brows: [], ears: [], mouth: null, extra: {}, faceBack: true, headStill: true };
 }
 
-async function load({ file, shot = 'upper' }, rig) {
+async function load({ file, shot = 'upper', jawClose = 0 }, rig) {
   const gltf = await loader.loadAsync(file);
   const model = gltf.scene;
   const orient = new THREE.Group();
@@ -153,7 +154,7 @@ async function load({ file, shot = 'upper' }, rig) {
     return e;
   });
   // These jaws hinge the other way from the game's usual (+x opened them shut), so they open on -x.
-  if (jaw) { rig.extra.jaw = jaw; jaw.userData.rest = jaw.rotation.x; jaw.userData.sign = -1; }
+  if (jaw) { rig.extra.jaw = jaw; jaw.userData.rest = jaw.rotation.x + jawClose; jaw.userData.sign = -1; }
   // No jaw on the head (none at all, or one low on the body like Wyvern's and Tyrant King's): the
   // head stretches and squashes as they talk.
   let o = jaw; while (o && o !== rig.head) o = o.parent;

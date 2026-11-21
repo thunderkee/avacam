@@ -48,9 +48,9 @@ function emptyRig() {
   const head = new THREE.Group();
   body.add(head);
   // faceBack: the fighters face -z, so they're turned round (nod and tilt flip with it);
-  // headStill: the head stays on its turret (no drift of its own); bodyStill: the body is locked,
-  // only the head and face move.
-  return { root, head, body, eyes: [], brows: [], ears: [], mouth: null, extra: {}, faceBack: true, headStill: true, bodyStill: true };
+  // headStill: the head stays on its turret (no drift of its own). The body moves like the other
+  // characters' (turn, tilt, sway, lean-in).
+  return { root, head, body, eyes: [], brows: [], ears: [], mouth: null, extra: {}, faceBack: true, headStill: true };
 }
 
 async function load({ file, shot = 'upper' }, rig) {

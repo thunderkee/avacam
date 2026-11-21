@@ -1,50 +1,48 @@
-// Captions, with no model to download:
-//  - while recording, the browser's own speech recognition (Chrome, Edge, Safari) writes down what's
-//    said, and each phrase is timed by when it was heard;
-//  - or the words are typed or pasted, and timed to the voice in the recording (where it's loud
-//    enough to be speech).
+// Captions:
+//  - after each take, the original (unedited) voice is sent to AvaCam's Worker, which recognises the
+//    speech (English or Indonesian, found by itself) and times every word; the words become short lines;
+//  - or the words are typed or pasted, and timed to the voice in the recording.
 // Lines are drawn onto the picture and can be saved as .srt.
 
-const Recognition = globalThis.SpeechRecognition || globalThis.webkitSpeechRecognition;
-export const canListen = !!Recognition;
+/** The recorded voice → { language, lines }. Throws with a readable message if it can't. */
+export async function transcribe(buffer) {
+  const wav = await toWav16k(buffer);
+  let res;
+  try { res = await fetch('/api/captions', { method: 'POST', headers: { 'content-type': 'audio/wav' }, body: wav }); }
+  catch { throw new Error('no connection'); }
+  const out = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(out.error || `server error ${res.status}`);
+  return { language: out.language || 'en', lines: wordsToLines(out.words || []) };
+}
 
-/** Listen while recording. clock() gives seconds since the take began. Returns { stop() → Promise<lines> }. */
-export function startListening(lang, clock) {
-  const phrases = []; // { text, start, end }
-  let live = true, rec = null, cur = {};
-  const begin = () => {
-    rec = new Recognition();
-    rec.lang = lang; rec.continuous = true; rec.interimResults = true;
-    rec.onresult = (e) => {
-      const t = clock();
-      for (let i = e.resultIndex; i < e.results.length; i++) {
-        const r = e.results[i];
-        // a phrase starts when its first words are heard and ends when it's settled
-        cur[i] ??= { start: Math.max(0, t - 0.4), end: t };
-        cur[i].end = t;
-        if (r.isFinal && !cur[i].done) {
-          cur[i].done = true;
-          const text = r[0].transcript.trim();
-          if (text) phrases.push({ text, start: cur[i].start, end: Math.max(cur[i].start + 0.3, t - 0.3) });
-        }
-      }
-    };
-    // Recognition stops by itself after a silence: start again while still recording.
-    rec.onend = () => { if (live) { cur = {}; try { begin(); } catch {} } };
-    rec.onerror = (e) => { if (e.error === 'not-allowed' || e.error === 'service-not-allowed' || e.error === 'language-not-supported') live = false; };
-    rec.start();
-  };
-  try { begin(); } catch { live = false; }
-  return {
-    stop: () => new Promise((resolve) => {
-      live = false;
-      if (!rec) return resolve([]);
-      const done = () => resolve(phrases.flatMap((p) => spread(splitText(p.text), p.start, p.end)));
-      const timer = setTimeout(done, 1500); // (late final results arrive just after stopping)
-      rec.onend = () => { clearTimeout(timer); done(); };
-      try { rec.stop(); } catch { clearTimeout(timer); done(); }
-    }),
-  };
+/** Timed words → caption lines: break after a sentence, after a comma once a line has a few words,
+ *  at a pause, and before a line gets long. */
+export function wordsToLines(words) {
+  const lines = [];
+  let cur = null;
+  for (const w of words) {
+    if (cur && ((cur.text + ' ' + w.word).length > 34 || w.start - cur.end > 0.7)) { lines.push(cur); cur = null; }
+    if (cur) { cur.text += ' ' + w.word; cur.end = w.end; } else cur = { text: w.word, start: w.start, end: w.end };
+    if (/[.!?]$/.test(w.word) || (/[,;:]$/.test(w.word) && cur.text.length >= 14)) { lines.push(cur); cur = null; }
+  }
+  if (cur) lines.push(cur);
+  return lines;
+}
+
+/** An AudioBuffer → 16 kHz mono 16-bit WAV (small enough to send, what the recogniser wants). */
+async function toWav16k(buffer) {
+  const sr = 16000, n = Math.ceil(buffer.duration * sr);
+  const off = new OfflineAudioContext(1, n, sr);
+  const src = off.createBufferSource(); src.buffer = buffer; src.connect(off.destination); src.start();
+  const x = (await off.startRendering()).getChannelData(0);
+  const out = new DataView(new ArrayBuffer(44 + x.length * 2));
+  const str = (o, t) => [...t].forEach((c, i) => out.setUint8(o + i, c.charCodeAt(0)));
+  str(0, 'RIFF'); out.setUint32(4, 36 + x.length * 2, true); str(8, 'WAVEfmt ');
+  out.setUint32(16, 16, true); out.setUint16(20, 1, true); out.setUint16(22, 1, true);
+  out.setUint32(24, sr, true); out.setUint32(28, sr * 2, true); out.setUint16(32, 2, true); out.setUint16(34, 16, true);
+  str(36, 'data'); out.setUint32(40, x.length * 2, true);
+  for (let i = 0; i < x.length; i++) out.setInt16(44 + i * 2, Math.max(-1, Math.min(1, x[i])) * 0x7fff, true);
+  return new Blob([out], { type: 'audio/wav' });
 }
 
 /** Text → short caption lines: break after a sentence, after a comma once a line has a few words,

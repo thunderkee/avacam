@@ -156,8 +156,6 @@
   .caprow[hidden] { display: none; }
   #capText { width: 100%; resize: vertical; padding: 8px 10px; border-radius: 10px; background: rgba(255,255,255,.05);
     border: 1px solid var(--line); color: var(--text); font: inherit; font-size: 13px; }
-  #capLang { flex: 1; min-width: 0; padding: 8px 10px; border-radius: var(--r-pill); background: var(--surface-solid);
-    color: var(--text); border: 1px solid var(--line); font: inherit; font-size: 13px; }
   .caplist { display: flex; flex-direction: column; gap: 4px; max-height: 150px; overflow-y: auto; }
   .caplist:empty { display: none; }
   .capline { display: flex; gap: var(--sp-sm); align-items: center; }
@@ -282,16 +280,6 @@
           <span class="vstatus" id="voiceStatus"></span>
         </div>
         <div class="panel" id="pCap">
-          <div class="caprow"><span class="vstatus">Speech language</span>
-            <select id="capLang" aria-label="Speech language for the next take">
-              <option value="en-US">English</option><option value="id-ID">Indonesian</option><option value="ms-MY">Malay</option>
-              <option value="zh-CN">Chinese</option><option value="ja-JP">Japanese</option><option value="ko-KR">Korean</option>
-              <option value="th-TH">Thai</option><option value="vi-VN">Vietnamese</option><option value="fil-PH">Filipino</option>
-              <option value="hi-IN">Hindi</option><option value="es-ES">Spanish</option><option value="pt-BR">Portuguese</option>
-              <option value="fr-FR">French</option><option value="de-DE">German</option><option value="it-IT">Italian</option>
-              <option value="ru-RU">Russian</option><option value="ar-SA">Arabic</option><option value="tr-TR">Turkish</option>
-            </select>
-          </div>
           <span class="vstatus" id="capStatus"></span>
           <div class="caplist" id="capList"></div>
           <div class="caprow" id="capTools" hidden>
@@ -301,6 +289,7 @@
           <textarea id="capText" rows="2" placeholder="Or type / paste what you said, and it's timed to your voice"></textarea>
           <div class="caprow">
             <button class="vchip sel" id="capTime">Time to my voice</button>
+            <button class="vchip" id="capAuto">Caption again</button>
           </div>
         </div>
         <div class="panel" id="pTrim">

@@ -10,7 +10,7 @@ import { TOY_CAST, ToyStage } from './toys3d.js';
 import { blurb3DCast } from './blurb3d.js';
 import { BDA_CAST } from './bda.js';
 import { VOICE_PRESETS, decode, applyVoice, toWav } from './voice-fx.js';
-import { canListen, startListening, timeToVoice, captionAt, drawCaption, toSrt, languageName } from './captions.js';
+import { transcribe, timeToVoice, captionAt, drawCaption, toSrt, languageName } from './captions.js';
 
 const $ = (id) => document.getElementById(id);
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
@@ -408,8 +408,6 @@ function startRecording() {
     // Motion time starts when audio does, so the two stay in sync.
     ar.onstart = () => { rec.t0 = now(); rec.samples = []; };
     ar.start(250); rec.audioRec = ar;
-    // Captions: the browser writes down what's said, timed from the start of the take.
-    if (canListen) rec.listen = startListening(capLang(), () => now() - rec.t0);
   }
   state.recording = rec;
   $('recBtn').classList.add('recording'); $('timer').hidden = false; $('liveChars').style.visibility = 'hidden';
@@ -421,14 +419,11 @@ async function stopRecording() {
   $('recBtn').classList.remove('recording'); $('timer').hidden = true; $('liveChars').style.visibility = '';
   let audio = null;
   if (rec.audioRec) {
-    const heard = rec.listen?.stop();
     await new Promise((r) => { rec.audioRec.onstop = r; rec.audioRec.stop(); });
     audio = new Blob(rec.chunks, { type: rec.audioRec.mimeType || 'audio/webm' });
-    rec.captions = await heard;
   }
   if (rec.samples.length < 10) return; // too short: stay in Live
-  openPost({ samples: rec.samples, calib: state.calib, audio, duration: rec.samples.at(-1).t,
-    captions: rec.captions?.length ? { language: capLang(), lines: rec.captions, heard: true } : null });
+  openPost({ samples: rec.samples, calib: state.calib, audio, duration: rec.samples.at(-1).t });
 }
 
 // ----------------------------------------------------------------------- post
@@ -437,12 +432,12 @@ const post = { audioEl: null, playing: false, clockT0: 0, clockPos: 0, smooth: 0
   buffer: null,           // the recorded voice, decoded
   voice: 'none', semis: 0, // voice effect choice (kept across takes)
   fxBuffer: null, fxJob: 0,
-  captions: null, capOn: true }; // captions: { language, lines } for this take
+  captions: null, capOn: true, capJob: 0, capBusy: false, capErr: '' }; // captions: { language, lines } for this take
 
 function openPost(proj) {
   state.proj = proj;
   post.trimS = 0; post.trimE = proj.duration; post.clockPos = 0; post.buffer = null; post.fxBuffer = null; post.fxJob++; $('fxOv').classList.remove('on');
-  post.captions = proj.captions || null; $('capText').value = ''; buildCaptionPanel();
+  post.captions = proj.captions || null; post.capJob++; $('capText').value = ''; buildCaptionPanel();
   $('trimStart').value = 0; $('trimEnd').value = 1000;
   post.audioEl?.pause();
   post.audioEl = null;
@@ -453,7 +448,7 @@ function openPost(proj) {
   }
   buildCarousel($('postChars'));
   buildVoicePanel();
-  if (proj.audio) decode(proj.audio).then((b) => { post.buffer = b; if (post.voice !== 'none' || post.semis) applyVoiceFx(); }).catch(() => {});
+  if (proj.audio) decode(proj.audio).then((b) => { post.buffer = b; if (post.voice !== 'none' || post.semis) applyVoiceFx(); if (!post.captions) autoCaption(); }).catch(() => {});
   resolveTracks(); updateTrimLabels();
   show('post');
   setPlaying(true);
@@ -643,9 +638,9 @@ function buildExportOpts() {
 }
 
 // ------------------------------------------------------------------ captions
-// While recording, the browser's speech recognition writes down what's said (no model to download);
-// or the words are typed and timed to the voice. Short timed lines are drawn on the preview, burned
-// into the export, and can be edited.
+// After each take the original voice (never the voice effect) is sent to AvaCam's Worker, which
+// recognises the speech, English or Indonesian, and times each word; or the words are typed and timed
+// to the voice. Short timed lines are drawn on the preview, burned into the export, and can be edited.
 
 const drawCaptionAt = (ctx, w, h, t, maxBottom) => { if (post.captions && post.capOn) drawCaption(ctx, w, h, captionAt(post.captions.lines, t), maxBottom); };
 // In the preview the controls cover the bottom of the picture: keep the caption above them.
@@ -654,26 +649,33 @@ const dockTop = () => {
   return v.height ? ((d.top - v.top) / v.height) * view.height : view.height;
 };
 
-// The language to listen in: last choice, else the phone's language if it's in the list.
-const capLang = () => $('capLang').value;
-{
-  const opts = [...$('capLang').options].map((o) => o.value);
-  let saved = null; try { saved = localStorage.getItem('avacam-caplang'); } catch {}
-  const nav = navigator.language || 'en-US';
-  $('capLang').value = (opts.includes(saved) && saved) || opts.find((o) => o === nav) || opts.find((o) => o.split('-')[0] === nav.split('-')[0]) || 'en-US';
-  $('capLang').onchange = () => { try { localStorage.setItem('avacam-caplang', capLang()); } catch {} buildCaptionPanel(); };
+async function autoCaption() {
+  if (!post.buffer) return;
+  const job = ++post.capJob;
+  post.capBusy = true; post.capErr = ''; buildCaptionPanel();
+  try {
+    const c = await transcribe(post.buffer);
+    if (job !== post.capJob) return;
+    post.captions = { ...c, heard: true };
+  } catch (e) {
+    if (job !== post.capJob) return;
+    post.capErr = e.message;
+  }
+  post.capBusy = false; buildCaptionPanel();
+  if (!post.playing) postTick();
 }
 
 function buildCaptionPanel() {
   const c = post.captions, list = $('capList'), status = $('capStatus');
-  list.textContent = ''; capLit = -1; status.classList.remove('err');
+  list.textContent = ''; capLit = -1; status.classList.toggle('err', !!post.capErr && !c?.lines.length);
   $('capTools').hidden = !c?.lines.length;
-  $('capTime').disabled = !state.proj?.audio;
-  const lang = languageName(capLang().split('-')[0]);
+  $('capTime').disabled = $('capAuto').disabled = !state.proj?.audio || post.capBusy;
   if (!state.proj?.audio) status.textContent = 'This take has no sound to caption.';
-  else if (c?.lines.length) status.textContent = `${c.lines.length} lines${c.heard ? `, heard in ${languageName(c.language.split('-')[0])}` : ''}. Tap a line to fix it.`;
-  else if (canListen) status.textContent = `Nothing was picked up while recording (listening in ${lang}). Type what you said below, or check the language and record again.`;
-  else status.textContent = "This browser can't write down speech. Type what you said below and it's timed to your voice.";
+  else if (post.capBusy) status.textContent = 'Writing captions from your voice…';
+  else if (c?.lines.length) status.textContent = `${c.lines.length} lines${c.heard ? `, in ${languageName(c.language)}` : ''}. Tap a line to fix it.`;
+  else if (post.capErr) status.textContent = `Couldn't write captions (${post.capErr}). Try again, or type what you said below.`;
+  else if (c) status.textContent = 'No speech was heard in this take. Type what you said below if there is some.';
+  else status.textContent = '';
   if (!c) return;
   for (const l of c.lines) {
     const row = document.createElement('div'); row.className = 'capline';
@@ -703,10 +705,15 @@ $('capTime').onclick = async () => {
   if (!text) { $('capText').focus(); return; }
   try {
     post.buffer ||= await decode(state.proj.audio);
-    post.captions = { language: capLang(), lines: timeToVoice(post.buffer, text) };
+    post.captions = { language: post.captions?.language || 'en', lines: timeToVoice(post.buffer, text) };
     buildCaptionPanel();
     if (!post.playing) postTick();
   } catch (e) { $('capStatus').textContent = `Couldn't time the captions: ${e.message}`; $('capStatus').classList.add('err'); }
+};
+$('capAuto').onclick = async () => {
+  if (!state.proj?.audio) return;
+  try { post.buffer ||= await decode(state.proj.audio); } catch { return; }
+  autoCaption();
 };
 $('capOn').onchange = (e) => { post.capOn = e.target.checked; if (!post.playing) postTick(); };
 $('capSrt').onclick = () => {

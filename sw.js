@@ -3,7 +3,7 @@
 //  - CDN libraries and models (pinned versions): cache first, they never change at a given URL.
 // Bump VERSION on a deploy that changes the file list below. (Fighter models aren't listed: they
 // are cached the first time each one is picked, so installing doesn't download all of them.)
-const VERSION = 'avacam-v8';
+const VERSION = 'avacam-v9';
 const APP_CACHE = `${VERSION}-app`;
 const CDN_CACHE = `${VERSION}-cdn`;
 

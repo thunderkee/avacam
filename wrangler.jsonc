@@ -1,7 +1,9 @@
-// Cloudflare deploy: a static-assets Worker serving this folder as AvaCam.
+// Cloudflare deploy: AvaCam's files, plus /api/captions (worker.js, speech recognition on Workers AI).
 // Deploy with:  npx wrangler deploy
 {
   "name": "avacam",
   "compatibility_date": "2026-11-18",
-  "assets": { "directory": "." }
+  "main": "worker.js",
+  "assets": { "directory": ".", "binding": "ASSETS", "run_worker_first": ["/api/*"] },
+  "ai": { "binding": "AI" }
 }

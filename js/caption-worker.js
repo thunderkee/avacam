@@ -1,10 +1,10 @@
-// Speech to captions, on this device, off the main thread: Whisper (multilingual, base size, 8-bit)
+// Speech to captions, on this device, off the main thread: Whisper (multilingual, tiny size, 8-bit)
 // via transformers.js on WebAssembly. Nothing is sent anywhere; only the model itself is downloaded
-// (about 75 MB, the first time; the browser keeps it). Finds whether the take is English or
+// (about 40 MB, the first time; the browser keeps it). Finds whether the take is English or
 // Indonesian, then writes it down with a time for every word.
 import { pipeline, Tensor } from 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.3.2/dist/transformers.min.js';
 
-const MODEL = 'onnx-community/whisper-base_timestamped';
+const MODEL = 'onnx-community/whisper-tiny_timestamped';
 const LANGS = ['en', 'id'];
 let asr = null;
 
